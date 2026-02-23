@@ -71,6 +71,17 @@ export default async function OrderPage({
 
   if (!event) notFound();
 
+  const now = new Date();
+  const today = now.toISOString().split('T')[0];
+  const isToday = event.event_date === today;
+
+  const [startHour, startMin] = (event.start_time || '00:00').split(':').map(Number);
+  const [endHour, endMin] = (event.end_time || '23:59').split(':').map(Number);
+  const currentMinutes = now.getHours() * 60 + now.getMinutes();
+  const startMinutes = startHour * 60 + startMin;
+  const endMinutes = endHour * 60 + endMin;
+  const isOpen = isToday && currentMinutes >= startMinutes && currentMinutes <= endMinutes;
+
   const loc = event.location as { name?: string } | null;
   const locationName = loc?.name ?? "Unknown";
 
