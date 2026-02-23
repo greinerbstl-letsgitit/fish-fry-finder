@@ -134,7 +134,7 @@ export default function AdminOrdersPage() {
               console.error("Orders fetch error:", error);
               setOrders([]);
             } else {
-              setOrders((data as OrderRow[]) ?? []);
+              setOrders((data as unknown as OrderRow[]) ?? []);
             }
             setLoadingOrders(false);
           });
