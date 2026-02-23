@@ -83,15 +83,8 @@ export default async function Home() {
         ) : (
           <ul className="space-y-5">
             {events.map(
-              (event: {
-                id: string;
-                event_date: string;
-                start_time: string | null;
-                end_time: string | null;
-                dine_in: boolean;
-                pickup: boolean;
-                location: { name?: string; city?: string; state?: string } | null;
-              }) => {
+              (event: any) => {
+                
                 const loc = event.location;
                 const locationName = loc && "name" in loc ? loc.name : "Unknown";
                 const city = loc && "city" in loc ? loc.city : "";
