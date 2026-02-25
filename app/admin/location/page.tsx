@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
+import { fetchZipCoords } from "@/lib/geo";
 
 type LocationRow = {
   id: string;
@@ -12,6 +13,8 @@ type LocationRow = {
   city: string | null;
   state: string | null;
   zip: string | null;
+  lat: number | null;
+  lng: number | null;
   type: string | null;
   description: string | null;
   contact_name: string | null;
@@ -104,7 +107,7 @@ export default function AdminLocationPage() {
     supabase
       .from("locations")
       .select(
-        "id, name, address, city, state, zip, type, description, contact_name, contact_email, contact_phone"
+        "id, name, address, city, state, zip, lat, lng, type, description, contact_name, contact_email, contact_phone"
       )
       .eq("user_id", user.id)
       .maybeSingle()
@@ -154,6 +157,15 @@ export default function AdminLocationPage() {
     e.preventDefault();
     if (!location?.id) return;
     setSavingLocation(true);
+    const zipTrimmed = zip.trim().replace(/\D/g, "");
+    let latLng: { lat: number | null; lng: number | null } = {
+      lat: null,
+      lng: null,
+    };
+    if (zipTrimmed.length >= 5) {
+      const coords = await fetchZipCoords(zipTrimmed);
+      if (coords) latLng = { lat: coords.lat, lng: coords.lng };
+    }
     await supabase
       .from("locations")
       .update({
@@ -162,6 +174,8 @@ export default function AdminLocationPage() {
         city: city.trim() || null,
         state: state.trim() || null,
         zip: zip.trim() || null,
+        lat: latLng.lat,
+        lng: latLng.lng,
         type: type.trim() || null,
         description: description.trim() || null,
         contact_name: contactName.trim() || null,
@@ -178,6 +192,8 @@ export default function AdminLocationPage() {
             city: city.trim() || null,
             state: state.trim() || null,
             zip: zip.trim() || null,
+            lat: latLng.lat,
+            lng: latLng.lng,
             type: type.trim() || null,
             description: description.trim() || null,
             contact_name: contactName.trim() || null,

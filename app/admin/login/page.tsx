@@ -100,6 +100,14 @@ export default function AdminLoginPage() {
               >
                 {submitting ? "Signing in…" : "Sign In"}
               </button>
+              <p className="text-center text-sm text-blue-100">
+                <Link
+                  href="/admin/signup"
+                  className="font-medium text-amber-200 hover:text-amber-100 underline underline-offset-2"
+                >
+                  Register your fish fry
+                </Link>
+              </p>
             </form>
           </div>
         </div>
