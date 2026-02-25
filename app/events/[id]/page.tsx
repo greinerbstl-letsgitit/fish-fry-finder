@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import ShareMenu from "./ShareMenu";
 
 function formatEventDate(dateStr: string) {
   const d = new Date(dateStr + "T12:00:00");
@@ -27,6 +28,25 @@ function formatPrice(price: number | string) {
     currency: "USD",
     minimumFractionDigits: 2,
   }).format(n);
+}
+
+function getDietaryTagClasses(tag: string) {
+  switch (tag) {
+    case "Gluten Free":
+      return "bg-green-100 text-green-800";
+    case "Dairy Free":
+      return "bg-blue-100 text-blue-800";
+    case "Nut Free":
+      return "bg-yellow-100 text-yellow-800";
+    case "Vegetarian":
+      return "bg-purple-100 text-purple-800";
+    case "Vegan":
+      return "bg-emerald-100 text-emerald-800";
+    case "Spicy":
+      return "bg-red-100 text-red-800";
+    default:
+      return "bg-gray-100 text-gray-700";
+  }
 }
 
 const CATEGORY_ORDER = ["fish", "sides", "drinks", "desserts"];
@@ -68,7 +88,7 @@ async function getEventById(id: string) {
 async function getMenuItems(eventId: string) {
   const { data, error } = await supabase
     .from("menu_items")
-    .select("id, name, description, price, category")
+    .select("id, name, description, price, category, dietary_tags")
     .eq("event_id", eventId)
     .eq("available", true)
     .order("category")
@@ -129,9 +149,12 @@ export default async function EventPage({
           >
             ← Back to events
           </Link>
-          <h1 className="mt-4 text-2xl font-bold tracking-tight text-white sm:text-3xl">
-            {locationName}
-          </h1>
+          <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <h1 className="text-2xl font-bold tracking-tight text-white sm:text-3xl">
+              {locationName}
+            </h1>
+            <ShareMenu locationName={locationName} />
+          </div>
           {cityStateZip && (
             <p className="mt-1 text-blue-100">{cityStateZip}</p>
           )}
@@ -194,6 +217,21 @@ export default async function EventPage({
                                 {item.description}
                               </p>
                             )}
+                            {Array.isArray(item.dietary_tags) &&
+                              item.dietary_tags.length > 0 && (
+                                <div className="mt-2 flex flex-wrap gap-1.5">
+                                  {item.dietary_tags.map((tag: string) => (
+                                    <span
+                                      key={tag}
+                                      className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${getDietaryTagClasses(
+                                        tag
+                                      )}`}
+                                    >
+                                      {tag}
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
                           </div>
                           <p className="mt-1 shrink-0 font-semibold text-[#1e3a5f] sm:mt-0">
                             {formatPrice(item.price)}

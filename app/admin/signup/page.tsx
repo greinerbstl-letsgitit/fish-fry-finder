@@ -1,10 +1,15 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
-import { fetchZipCoords } from "@/lib/geo";
+import {
+  fetchCitySuggestions,
+  fetchZipCoords,
+  US_STATE_ABBREVS,
+  type CitySuggestion,
+} from "@/lib/geo";
 
 const LOCATION_TYPES = [
   { value: "church", label: "Church" },
@@ -28,14 +33,106 @@ export default function AdminSignupPage() {
   const [contactEmail, setContactEmail] = useState("");
   const [contactPhone, setContactPhone] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [addressError, setAddressError] = useState<string | null>(null);
+  const [cityError, setCityError] = useState<string | null>(null);
+  const [stateError, setStateError] = useState<string | null>(null);
+  const [zipError, setZipError] = useState<string | null>(null);
+  const [contactNameError, setContactNameError] = useState<string | null>(null);
+  const [contactPhoneError, setContactPhoneError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [citySuggestions, setCitySuggestions] = useState<CitySuggestion[]>([]);
+  const [showCitySuggestions, setShowCitySuggestions] = useState(false);
+  const [stateSuggestions, setStateSuggestions] = useState<string[]>([]);
+  const [showStateSuggestions, setShowStateSuggestions] = useState(false);
+  const cityInputRef = useRef<HTMLInputElement>(null);
+  const citySuggestionsRef = useRef<HTMLDivElement>(null);
+  const stateInputRef = useRef<HTMLInputElement>(null);
+  const stateSuggestionsRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const s = state.trim().toUpperCase();
+    if (s.length < 1) {
+      setStateSuggestions([]);
+      return;
+    }
+    const matches = US_STATE_ABBREVS.filter((abbr) =>
+      abbr.startsWith(s)
+    ).slice(0, 10);
+    setStateSuggestions(matches);
+  }, [state]);
+
+  useEffect(() => {
+    if (state.trim().length < 2 || city.trim().length < 2) {
+      setCitySuggestions([]);
+      return;
+    }
+    let cancelled = false;
+    const t = setTimeout(async () => {
+      const results = await fetchCitySuggestions(state, city);
+      if (!cancelled) setCitySuggestions(results);
+    }, 300);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, [state, city]);
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      const target = e.target as Node;
+      if (
+        citySuggestionsRef.current &&
+        !citySuggestionsRef.current.contains(target) &&
+        cityInputRef.current &&
+        !cityInputRef.current.contains(target)
+      ) {
+        setShowCitySuggestions(false);
+      }
+      if (
+        stateSuggestionsRef.current &&
+        !stateSuggestionsRef.current.contains(target) &&
+        stateInputRef.current &&
+        !stateInputRef.current.contains(target)
+      ) {
+        setShowStateSuggestions(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+    setAddressError(null);
+    setCityError(null);
+    setStateError(null);
+    setZipError(null);
+    setContactNameError(null);
+    setContactPhoneError(null);
 
     if (password !== confirmPassword) {
       setError("Passwords do not match.");
+      return;
+    }
+
+    const addressMissing = !address.trim();
+    const cityMissing = !city.trim();
+    const stateMissing = !state.trim();
+    const zipMissing = !zip.trim();
+    if (addressMissing || cityMissing || stateMissing || zipMissing) {
+      if (addressMissing) setAddressError("Address is required.");
+      if (cityMissing) setCityError("City is required.");
+      if (stateMissing) setStateError("State is required.");
+      if (zipMissing) setZipError("Zip is required.");
+      return;
+    }
+
+    const nameMissing = !contactName.trim();
+    const phoneMissing = !contactPhone.trim();
+    if (nameMissing || phoneMissing) {
+      if (nameMissing) setContactNameError("Contact name is required.");
+      if (phoneMissing) setContactPhoneError("Contact phone is required.");
       return;
     }
 
@@ -210,58 +307,163 @@ export default function AdminSignupPage() {
               </div>
               <div>
                 <label htmlFor="address" className="block text-sm font-medium text-gray-700">
-                  Address
+                  Address <span className="text-red-600">*</span>
                 </label>
                 <input
                   id="address"
                   type="text"
+                  required
                   value={address}
-                  onChange={(e) => setAddress(e.target.value)}
-                  className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-gray-900 shadow-sm focus:border-[#1e3a5f] focus:ring-1 focus:ring-[#1e3a5f]"
+                  onChange={(e) => {
+                    setAddress(e.target.value);
+                    setAddressError(null);
+                  }}
+                  className={`mt-1 w-full rounded-lg border px-3 py-2 text-gray-900 shadow-sm focus:ring-1 ${
+                    addressError
+                      ? "border-red-500 focus:border-red-500 focus:ring-red-500"
+                      : "border-gray-300 focus:border-[#1e3a5f] focus:ring-[#1e3a5f]"
+                  }`}
                   placeholder="123 Main St"
                 />
+                {addressError && (
+                  <p className="mt-1 text-sm text-red-600" role="alert">
+                    {addressError}
+                  </p>
+                )}
               </div>
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <div>
-                  <label htmlFor="city" className="block text-sm font-medium text-gray-700">
-                    City
-                  </label>
-                  <input
-                    id="city"
-                    type="text"
-                    value={city}
-                    onChange={(e) => setCity(e.target.value)}
-                    className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-gray-900 shadow-sm focus:border-[#1e3a5f] focus:ring-1 focus:ring-[#1e3a5f]"
-                    placeholder="City"
-                  />
-                </div>
-                <div>
+                <div className="relative" ref={stateSuggestionsRef}>
                   <label htmlFor="state" className="block text-sm font-medium text-gray-700">
-                    State
+                    State <span className="text-red-600">*</span>
                   </label>
                   <input
+                    ref={stateInputRef}
                     id="state"
                     type="text"
+                    required
                     value={state}
-                    onChange={(e) => setState(e.target.value)}
-                    className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-gray-900 shadow-sm focus:border-[#1e3a5f] focus:ring-1 focus:ring-[#1e3a5f]"
+                    onChange={(e) => {
+                      setState(e.target.value.toUpperCase().slice(0, 2));
+                      setStateError(null);
+                      setShowStateSuggestions(true);
+                    }}
+                    onFocus={() => state.trim() && setShowStateSuggestions(true)}
+                    className={`mt-1 w-full rounded-lg border px-3 py-2 text-gray-900 shadow-sm focus:ring-1 ${
+                      stateError
+                        ? "border-red-500 focus:border-red-500 focus:ring-red-500"
+                        : "border-gray-300 focus:border-[#1e3a5f] focus:ring-[#1e3a5f]"
+                    }`}
                     placeholder="ST"
+                    autoComplete="off"
                   />
+                  {showStateSuggestions && stateSuggestions.length > 0 && (
+                    <ul
+                      className="absolute left-0 right-0 top-full z-20 mt-1 max-h-40 overflow-auto rounded-lg border border-[#2d5a87] bg-white py-1 shadow-lg"
+                      role="listbox"
+                    >
+                      {stateSuggestions.map((abbr) => (
+                        <li key={abbr} role="option">
+                          <button
+                            type="button"
+                            className="w-full px-3 py-2 text-left text-sm text-[#1e3a5f] hover:bg-[#16324a] hover:text-white focus:bg-[#16324a] focus:text-white focus:outline-none"
+                            onClick={() => {
+                              setState(abbr);
+                              setShowStateSuggestions(false);
+                              stateInputRef.current?.focus();
+                            }}
+                          >
+                            {abbr}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  {stateError && (
+                    <p className="mt-1 text-sm text-red-600" role="alert">
+                      {stateError}
+                    </p>
+                  )}
+                </div>
+                <div className="relative" ref={citySuggestionsRef}>
+                  <label htmlFor="city" className="block text-sm font-medium text-gray-700">
+                    City <span className="text-red-600">*</span>
+                  </label>
+                  <input
+                    ref={cityInputRef}
+                    id="city"
+                    type="text"
+                    required
+                    value={city}
+                    onChange={(e) => {
+                      setCity(e.target.value);
+                      setCityError(null);
+                      setShowCitySuggestions(true);
+                    }}
+                    onFocus={() => city.trim() && state.trim().length >= 2 && setShowCitySuggestions(true)}
+                    className={`mt-1 w-full rounded-lg border px-3 py-2 text-gray-900 shadow-sm focus:ring-1 ${
+                      cityError
+                        ? "border-red-500 focus:border-red-500 focus:ring-red-500"
+                        : "border-gray-300 focus:border-[#1e3a5f] focus:ring-[#1e3a5f]"
+                    }`}
+                    placeholder="City (enter state first)"
+                    autoComplete="off"
+                  />
+                  {showCitySuggestions && citySuggestions.length > 0 && (
+                    <ul
+                      className="absolute left-0 right-0 top-full z-20 mt-1 max-h-48 overflow-auto rounded-lg border border-[#2d5a87] bg-white py-1 shadow-lg"
+                      role="listbox"
+                    >
+                      {citySuggestions.map((s, i) => (
+                        <li key={`${s.city}-${s.stateAbbr}-${i}`} role="option">
+                          <button
+                            type="button"
+                            className="w-full px-3 py-2 text-left text-sm text-[#1e3a5f] hover:bg-[#16324a] hover:text-white focus:bg-[#16324a] focus:text-white focus:outline-none"
+                            onClick={() => {
+                              setCity(s.city);
+                              setState(s.stateAbbr);
+                              setShowCitySuggestions(false);
+                              cityInputRef.current?.focus();
+                            }}
+                          >
+                            {s.city}, {s.stateAbbr}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  {cityError && (
+                    <p className="mt-1 text-sm text-red-600" role="alert">
+                      {cityError}
+                    </p>
+                  )}
                 </div>
               </div>
               <div>
                 <label htmlFor="zip" className="block text-sm font-medium text-gray-700">
-                  Zip
+                  Zip <span className="text-red-600">*</span>
                 </label>
                 <input
                   id="zip"
                   type="text"
                   inputMode="numeric"
+                  required
                   value={zip}
-                  onChange={(e) => setZip(e.target.value.replace(/\D/g, "").slice(0, 5))}
-                  className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-gray-900 shadow-sm focus:border-[#1e3a5f] focus:ring-1 focus:ring-[#1e3a5f]"
+                  onChange={(e) => {
+                    setZip(e.target.value.replace(/\D/g, "").slice(0, 5));
+                    setZipError(null);
+                  }}
+                  className={`mt-1 w-full rounded-lg border px-3 py-2 text-gray-900 shadow-sm focus:ring-1 ${
+                    zipError
+                      ? "border-red-500 focus:border-red-500 focus:ring-red-500"
+                      : "border-gray-300 focus:border-[#1e3a5f] focus:ring-[#1e3a5f]"
+                  }`}
                   placeholder="12345"
                 />
+                {zipError && (
+                  <p className="mt-1 text-sm text-red-600" role="alert">
+                    {zipError}
+                  </p>
+                )}
               </div>
               <div>
                 <label htmlFor="type" className="block text-sm font-medium text-gray-700">
@@ -282,16 +484,29 @@ export default function AdminSignupPage() {
               </div>
               <div>
                 <label htmlFor="contactName" className="block text-sm font-medium text-gray-700">
-                  Contact name
+                  Contact name <span className="text-red-600">*</span>
                 </label>
                 <input
                   id="contactName"
                   type="text"
+                  required
                   value={contactName}
-                  onChange={(e) => setContactName(e.target.value)}
-                  className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-gray-900 shadow-sm focus:border-[#1e3a5f] focus:ring-1 focus:ring-[#1e3a5f]"
+                  onChange={(e) => {
+                    setContactName(e.target.value);
+                    setContactNameError(null);
+                  }}
+                  className={`mt-1 w-full rounded-lg border px-3 py-2 text-gray-900 shadow-sm focus:ring-1 ${
+                    contactNameError
+                      ? "border-red-500 focus:border-red-500 focus:ring-red-500"
+                      : "border-gray-300 focus:border-[#1e3a5f] focus:ring-[#1e3a5f]"
+                  }`}
                   placeholder="John Smith"
                 />
+                {contactNameError && (
+                  <p className="mt-1 text-sm text-red-600" role="alert">
+                    {contactNameError}
+                  </p>
+                )}
               </div>
               <div>
                 <label htmlFor="contactEmail" className="block text-sm font-medium text-gray-700">
@@ -308,16 +523,29 @@ export default function AdminSignupPage() {
               </div>
               <div>
                 <label htmlFor="contactPhone" className="block text-sm font-medium text-gray-700">
-                  Contact phone
+                  Contact phone <span className="text-red-600">*</span>
                 </label>
                 <input
                   id="contactPhone"
                   type="tel"
+                  required
                   value={contactPhone}
-                  onChange={(e) => setContactPhone(e.target.value)}
-                  className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-gray-900 shadow-sm focus:border-[#1e3a5f] focus:ring-1 focus:ring-[#1e3a5f]"
+                  onChange={(e) => {
+                    setContactPhone(e.target.value);
+                    setContactPhoneError(null);
+                  }}
+                  className={`mt-1 w-full rounded-lg border px-3 py-2 text-gray-900 shadow-sm focus:ring-1 ${
+                    contactPhoneError
+                      ? "border-red-500 focus:border-red-500 focus:ring-red-500"
+                      : "border-gray-300 focus:border-[#1e3a5f] focus:ring-[#1e3a5f]"
+                  }`}
                   placeholder="(555) 123-4567"
                 />
+                {contactPhoneError && (
+                  <p className="mt-1 text-sm text-red-600" role="alert">
+                    {contactPhoneError}
+                  </p>
+                )}
               </div>
             </section>
 

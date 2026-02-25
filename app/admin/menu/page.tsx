@@ -14,6 +14,7 @@ type MenuItemRow = {
   category: string;
   available: boolean;
   prep_time_minutes: number | null;
+  dietary_tags: string[] | null;
 };
 
 type EventRow = {
@@ -48,6 +49,14 @@ function getLocationName(ev: EventRow): string {
 }
 
 const CATEGORIES = ["fish", "sides", "drinks", "desserts", "other"];
+const DIETARY_TAG_OPTIONS = [
+  "Gluten Free",
+  "Dairy Free",
+  "Nut Free",
+  "Vegetarian",
+  "Vegan",
+  "Spicy",
+] as const;
 
 type LocationRow = { id: string; name: string } | null;
 
@@ -112,7 +121,8 @@ export default function AdminMenuPage() {
           price,
           category,
           available,
-          prep_time_minutes
+          prep_time_minutes,
+          dietary_tags
         )
       `
       )
@@ -365,6 +375,7 @@ export default function AdminMenuPage() {
                   price: payload.price,
                   category: payload.category,
                   prep_time_minutes: payload.prep_time_minutes || null,
+                  dietary_tags: payload.dietary_tags,
                 })
                 .eq("id", editingItem.id);
               if (!error) {
@@ -390,9 +401,10 @@ export default function AdminMenuPage() {
                   price: payload.price,
                   category: payload.category,
                   prep_time_minutes: payload.prep_time_minutes || null,
+                  dietary_tags: payload.dietary_tags,
                   available: true,
                 })
-                .select("id, event_id, name, description, price, category, available, prep_time_minutes")
+                .select("id, event_id, name, description, price, category, available, prep_time_minutes, dietary_tags")
                 .single();
               if (!error && newItem) {
                 setEvents((prev) =>
@@ -423,6 +435,7 @@ type FormPayload = {
   price: string;
   category: string;
   prep_time_minutes: string;
+  dietary_tags: string[];
 };
 
 function ItemFormModal({
@@ -441,6 +454,7 @@ function ItemFormModal({
     price: number;
     category: string;
     prep_time_minutes: number | null;
+    dietary_tags: string[];
   }) => Promise<void>;
   onClose: () => void;
 }) {
@@ -457,6 +471,9 @@ function ItemFormModal({
       ? String(initialItem.prep_time_minutes)
       : ""
   );
+  const [dietaryTags, setDietaryTags] = useState<string[]>(
+    initialItem?.dietary_tags ?? []
+  );
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -470,6 +487,7 @@ function ItemFormModal({
       price: numPrice,
       category: category.trim() || "other",
       prep_time_minutes: numPrep ?? null,
+      dietary_tags: dietaryTags,
     });
   }
 
@@ -552,6 +570,34 @@ function ItemFormModal({
               placeholder="Optional"
               className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-gray-900"
             />
+          </div>
+          <div>
+            <p className="block text-sm font-medium text-gray-700">Dietary tags</p>
+            <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
+              {DIETARY_TAG_OPTIONS.map((tag) => {
+                const checked = dietaryTags.includes(tag);
+                return (
+                  <label
+                    key={tag}
+                    className="inline-flex items-center gap-2 rounded-lg border border-gray-200 px-2 py-1.5 text-sm text-gray-700"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={(e) => {
+                        setDietaryTags((prev) =>
+                          e.target.checked
+                            ? [...prev, tag]
+                            : prev.filter((t) => t !== tag)
+                        );
+                      }}
+                      className="rounded border-gray-300 text-[#1e3a5f] focus:ring-[#1e3a5f]"
+                    />
+                    <span>{tag}</span>
+                  </label>
+                );
+              })}
+            </div>
           </div>
           <div className="flex gap-3 pt-2">
             <button

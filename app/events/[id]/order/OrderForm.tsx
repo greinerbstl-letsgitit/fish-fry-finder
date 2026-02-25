@@ -29,6 +29,7 @@ type MenuItem = {
   price: number | string;
   category: string;
   prep_time_minutes?: number | null;
+  dietary_tags?: string[] | null;
 };
 
 type EventData = {
@@ -54,6 +55,25 @@ function sortCategories(categories: string[]) {
     if (j === -1) return -1;
     return i - j;
   });
+}
+
+function getDietaryTagClasses(tag: string) {
+  switch (tag) {
+    case "Gluten Free":
+      return "bg-green-100 text-green-800";
+    case "Dairy Free":
+      return "bg-blue-100 text-blue-800";
+    case "Nut Free":
+      return "bg-yellow-100 text-yellow-800";
+    case "Vegetarian":
+      return "bg-purple-100 text-purple-800";
+    case "Vegan":
+      return "bg-emerald-100 text-emerald-800";
+    case "Spicy":
+      return "bg-red-100 text-red-800";
+    default:
+      return "bg-gray-100 text-gray-700";
+  }
 }
 
 type Props = {
@@ -362,6 +382,21 @@ export function OrderForm({ eventId, locationName, event, menuItems }: Props) {
                         {item.description && (
                           <p className="text-sm text-gray-600">{item.description}</p>
                         )}
+                        {Array.isArray(item.dietary_tags) &&
+                          item.dietary_tags.length > 0 && (
+                            <div className="mt-1 flex flex-wrap gap-1.5">
+                              {item.dietary_tags.map((tag) => (
+                                <span
+                                  key={tag}
+                                  className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${getDietaryTagClasses(
+                                    tag
+                                  )}`}
+                                >
+                                  {tag}
+                                </span>
+                              ))}
+                            </div>
+                          )}
                         <p className="text-sm font-semibold text-[#1e3a5f]">
                           {formatPrice(unitPrice)}
                         </p>

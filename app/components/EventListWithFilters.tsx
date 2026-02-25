@@ -1,12 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   citiesMatch,
   fetchCityCoords,
+  fetchCitySuggestions,
   fetchZipCoords,
   haversineMiles,
+  US_STATE_ABBREVS,
 } from "@/lib/geo";
 
 export type EventWithLocation = {
@@ -80,6 +82,11 @@ export function EventListWithFilters({ events }: { events: EventWithLocation[] }
   const [zipQuery, setZipQuery] = useState("");
   const [dateFilter, setDateFilter] = useState<string>("");
   const [withinMiles, setWithinMiles] = useState<string>("");
+  const [showCitySuggestions, setShowCitySuggestions] = useState(false);
+  const [citySuggestions, setCitySuggestions] = useState<{ city: string; stateAbbr: string }[]>([]);
+  const [citySuggestionsLoading, setCitySuggestionsLoading] = useState(false);
+  const cityInputRef = useRef<HTMLInputElement>(null);
+  const citySuggestionsRef = useRef<HTMLDivElement>(null);
   const [originCoords, setOriginCoords] = useState<{
     lat: number;
     lng: number;
@@ -91,6 +98,52 @@ export function EventListWithFilters({ events }: { events: EventWithLocation[] }
     const set = new Set(events.map((e) => e.event_date));
     return Array.from(set).sort();
   }, [events]);
+
+  useEffect(() => {
+    const q = cityQuery.trim();
+    if (q.length < 2) {
+      setCitySuggestions([]);
+      return;
+    }
+    let cancelled = false;
+    setCitySuggestionsLoading(true);
+    const t = setTimeout(() => {
+      Promise.all(
+        US_STATE_ABBREVS.map((stateAbbr) =>
+          fetchCitySuggestions(stateAbbr, q)
+        )
+      )
+      .then((results) => {
+        if (cancelled) return;
+        const seen = new Set<string>();
+        const merged: { city: string; stateAbbr: string }[] = [];
+        for (const batch of results) {
+          for (const s of batch) {
+            const key = `${s.city.toLowerCase()}|${s.stateAbbr}`;
+            if (!seen.has(key)) {
+              seen.add(key);
+              merged.push(s);
+            }
+          }
+        }
+        merged.sort((a, b) =>
+          `${a.city}, ${a.stateAbbr}`.localeCompare(
+            `${b.city}, ${b.stateAbbr}`,
+            undefined,
+            { sensitivity: "base" }
+          )
+        );
+        setCitySuggestions(merged.slice(0, 15));
+      })
+      .finally(() => {
+        if (!cancelled) setCitySuggestionsLoading(false);
+      });
+    }, 300);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, [cityQuery]);
 
   // Resolve origin: zip takes precedence, then city (with state from matching events)
   const resolveOrigin = useCallback(async () => {
@@ -133,7 +186,6 @@ export function EventListWithFilters({ events }: { events: EventWithLocation[] }
       setGeoError(null);
       const coords = await fetchCityCoords(city, state);
       setOriginCoords(coords);
-      if (!coords) setGeoError("Could not find that city.");
       setGeoLoading(false);
       return;
     }
@@ -166,8 +218,21 @@ export function EventListWithFilters({ events }: { events: EventWithLocation[] }
 
     const origin = originCoords;
     const withinMilesNum = withinMiles ? parseInt(withinMiles, 10) : null;
+    const cityTrimmed = cityQuery.trim();
+    const hasCityQuery = !!cityTrimmed;
+    let searchCity = "";
+    let searchState = "";
+    if (hasCityQuery) {
+      const commaIdx = cityTrimmed.indexOf(",");
+      if (commaIdx > 0) {
+        searchCity = cityTrimmed.slice(0, commaIdx).trim();
+        searchState = cityTrimmed.slice(commaIdx + 1).trim();
+      } else {
+        searchCity = cityTrimmed;
+      }
+    }
 
-    // Compute distances when we have origin
+    // Compute distances when we have origin (from zip or successful city coords lookup)
     const distMap = new Map<string, number>();
     if (origin) {
       for (const event of list) {
@@ -193,17 +258,47 @@ export function EventListWithFilters({ events }: { events: EventWithLocation[] }
         const db = distMap.get(b.id) ?? Infinity;
         return da - db;
       });
+    } else if (hasCityQuery && searchCity) {
+      // No coords (e.g. city not in zippopotam): sort by city name match
+      list = [...list].sort((a, b) => {
+        const cityA = getLocationCity(a);
+        const stateA = getLocationState(a);
+        const cityB = getLocationCity(b);
+        const stateB = getLocationState(b);
+        const matchA = citiesMatch(cityA, searchCity) &&
+          (!searchState || stateA.toUpperCase().includes(searchState.toUpperCase()));
+        const matchB = citiesMatch(cityB, searchCity) &&
+          (!searchState || stateB.toUpperCase().includes(searchState.toUpperCase()));
+        if (matchA && !matchB) return -1;
+        if (!matchA && matchB) return 1;
+        return 0;
+      });
     }
 
-    // Apply within X miles filter
+    // Apply within X miles filter (only when we have coords)
     if (origin && withinMilesNum != null && withinMilesNum > 0) {
       list = list.filter((d) => (distMap.get(d.id) ?? Infinity) <= withinMilesNum);
     }
 
     return { filteredAndSortedEvents: list, distances: distMap };
-  }, [events, dateFilter, originCoords, withinMiles]);
+  }, [events, dateFilter, originCoords, withinMiles, cityQuery]);
 
   const hasOrigin = !!zipQuery.trim() || !!cityQuery.trim();
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (
+        citySuggestionsRef.current &&
+        !citySuggestionsRef.current.contains(e.target as Node) &&
+        cityInputRef.current &&
+        !cityInputRef.current.contains(e.target as Node)
+      ) {
+        setShowCitySuggestions(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   return (
     <>
@@ -211,19 +306,54 @@ export function EventListWithFilters({ events }: { events: EventWithLocation[] }
       <div className="sticky top-0 z-10 border-b border-[#2d5a87] bg-[#16324a] px-4 py-4 shadow-md sm:px-6 lg:px-8">
         <div className="mx-auto max-w-4xl space-y-3">
           <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:gap-4">
-            <div className="min-w-0 flex-1 sm:min-w-[180px]">
+            <div className="min-w-0 flex-1 sm:min-w-[180px] relative" ref={citySuggestionsRef}>
               <label htmlFor="city-search" className="sr-only">
                 Search by city
               </label>
               <input
+                ref={cityInputRef}
                 id="city-search"
                 type="search"
                 placeholder="City (e.g. Saint Louis)"
                 value={cityQuery}
-                onChange={(e) => setCityQuery(e.target.value)}
+                onChange={(e) => {
+                  setCityQuery(e.target.value);
+                  setShowCitySuggestions(true);
+                }}
+                onFocus={() => cityQuery.trim() && setShowCitySuggestions(true)}
                 className="w-full rounded-xl border border-[#2d5a87] bg-white/10 px-4 py-3 text-white placeholder-blue-200/80 focus:border-[#c9a227] focus:outline-none focus:ring-2 focus:ring-[#c9a227]/50 sm:py-2.5"
                 aria-label="Search by city name"
+                autoComplete="off"
               />
+              {showCitySuggestions &&
+                (citySuggestionsLoading || citySuggestions.length > 0) && (
+                <ul
+                  className="absolute left-0 right-0 top-full z-20 mt-1 max-h-48 overflow-auto rounded-xl border border-[#c9a227]/50 bg-[#16324a] py-1 shadow-lg"
+                  role="listbox"
+                >
+                  {citySuggestionsLoading && citySuggestions.length === 0 ? (
+                    <li className="px-4 py-2.5 text-sm text-amber-200/90">
+                      Loading suggestions…
+                    </li>
+                  ) : (
+                    citySuggestions.map((s) => (
+                      <li key={`${s.city}|${s.stateAbbr}`} role="option">
+                        <button
+                          type="button"
+                          className="w-full px-4 py-2.5 text-left text-sm text-white hover:bg-[#2d5a87] hover:text-amber-200 focus:bg-[#2d5a87] focus:text-amber-200 focus:outline-none"
+                          onClick={() => {
+                            setCityQuery(`${s.city}, ${s.stateAbbr}`);
+                            setShowCitySuggestions(false);
+                            cityInputRef.current?.focus();
+                          }}
+                        >
+                          {s.city}, {s.stateAbbr}
+                        </button>
+                      </li>
+                    ))
+                  )}
+                </ul>
+              )}
             </div>
             <div className="min-w-0 sm:w-[140px]">
               <label htmlFor="zip-search" className="sr-only">
