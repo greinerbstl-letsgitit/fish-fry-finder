@@ -147,6 +147,10 @@ export function OrderForm({ eventId, locationName, event, menuItems }: Props) {
       setSubmitError("Please enter your name.");
       return;
     }
+    if (!email.trim()) {
+      setSubmitError("Please enter your email.");
+      return;
+    }
     setSubmitting(true);
     const items = menuItems
       .filter((m) => (quantities[m.id] ?? 0) > 0)
@@ -296,6 +300,7 @@ export function OrderForm({ eventId, locationName, event, menuItems }: Props) {
             <input
               id="email"
               type="email"
+              required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-gray-900 shadow-sm focus:border-[#1e3a5f] focus:ring-1 focus:ring-[#1e3a5f]"
