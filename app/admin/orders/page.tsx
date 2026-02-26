@@ -5,6 +5,11 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { notifyOrderReady } from "./actions";
+import {
+  checkIsSuperAdmin,
+  getManagedLocations,
+  type ManagedLocation,
+} from "@/lib/admin-access";
 
 type OrderItemRow = {
   id: string;
@@ -59,16 +64,20 @@ function getEventDate(order: OrderRow): string {
   return ev?.event_date ? formatEventDate(ev.event_date) : "—";
 }
 
-type LocationRow = { id: string; name: string } | null;
+type LocationRow = { id: string; name: string };
 
 export default function AdminOrdersPage() {
   const router = useRouter();
   const [user, setUser] = useState<{ id: string; email?: string } | null>(null);
-  const [location, setLocation] = useState<LocationRow>(null);
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false);
+  const [locations, setLocations] = useState<ManagedLocation[]>([]);
+  const [selectedLocationId, setSelectedLocationId] = useState<string>("");
   const [orders, setOrders] = useState<OrderRow[]>([]);
   const [checking, setChecking] = useState(true);
   const [loadingOrders, setLoadingOrders] = useState(true);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const location =
+    locations.find((loc) => loc.id === selectedLocationId) ?? null;
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -83,16 +92,19 @@ export default function AdminOrdersPage() {
 
   useEffect(() => {
     if (!user?.id) return;
-    supabase
-      .from("locations")
-      .select("id, name")
-      .eq("user_id", user.id)
-      .maybeSingle()
-      .then(({ data }) => setLocation(data ?? null));
+    Promise.all([checkIsSuperAdmin(user.id)]).then(async ([superAdmin]) => {
+      const managed = await getManagedLocations(user.id, superAdmin);
+      setIsSuperAdmin(superAdmin);
+      setLocations(managed);
+      setSelectedLocationId((prev) => {
+        if (prev && managed.some((loc) => loc.id === prev)) return prev;
+        return managed[0]?.id ?? "";
+      });
+    });
   }, [user?.id]);
 
   useEffect(() => {
-    if (!location?.id) {
+    if (!selectedLocationId) {
       setLoadingOrders(false);
       setOrders([]);
       return;
@@ -102,7 +114,7 @@ export default function AdminOrdersPage() {
     supabase
       .from("events")
       .select("id")
-      .eq("location_id", location.id)
+      .eq("location_id", selectedLocationId)
       .then(({ data: eventRows, error: eventsError }) => {
         if (eventsError || !eventRows?.length) {
           setOrders([]);
@@ -139,7 +151,7 @@ export default function AdminOrdersPage() {
             setLoadingOrders(false);
           });
       });
-  }, [location?.id]);
+  }, [selectedLocationId]);
 
   async function setStatus(orderId: string, newStatus: string, order: OrderRow) {
     setUpdatingId(orderId);
@@ -193,6 +205,25 @@ export default function AdminOrdersPage() {
               Orders
             </h1>
           </div>
+          {isSuperAdmin && locations.length > 0 && (
+            <div className="flex items-center gap-2">
+              <label htmlFor="orders-location-switcher" className="text-sm text-blue-100">
+                Location
+              </label>
+              <select
+                id="orders-location-switcher"
+                value={selectedLocationId}
+                onChange={(e) => setSelectedLocationId(e.target.value)}
+                className="rounded-lg border border-[#2d5a87] bg-white/10 px-3 py-2 text-sm text-white focus:border-[#c9a227] focus:outline-none"
+              >
+                {locations.map((loc) => (
+                  <option key={loc.id} value={loc.id} className="bg-[#16324a] text-white">
+                    {loc.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
         </div>
       </header>
 

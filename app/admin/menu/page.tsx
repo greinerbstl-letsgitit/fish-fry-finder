@@ -4,6 +4,11 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
+import {
+  checkIsSuperAdmin,
+  getManagedLocations,
+  type ManagedLocation,
+} from "@/lib/admin-access";
 
 type MenuItemRow = {
   id: string;
@@ -58,12 +63,14 @@ const DIETARY_TAG_OPTIONS = [
   "Spicy",
 ] as const;
 
-type LocationRow = { id: string; name: string } | null;
+type LocationRow = { id: string; name: string };
 
 export default function AdminMenuPage() {
   const router = useRouter();
   const [user, setUser] = useState<{ id: string; email?: string } | null>(null);
-  const [location, setLocation] = useState<LocationRow>(null);
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false);
+  const [locations, setLocations] = useState<ManagedLocation[]>([]);
+  const [selectedLocationId, setSelectedLocationId] = useState<string>("");
   const [events, setEvents] = useState<EventRow[]>([]);
   const [checking, setChecking] = useState(true);
   const [loading, setLoading] = useState(true);
@@ -72,9 +79,16 @@ export default function AdminMenuPage() {
   const [addForEventId, setAddForEventId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [copySourceEventId, setCopySourceEventId] = useState<string | null>(null);
+  const [copyTargetEventId, setCopyTargetEventId] = useState<string>("");
+  const [copyingMenu, setCopyingMenu] = useState(false);
+  const [copyMenuMessage, setCopyMenuMessage] = useState<string | null>(null);
+  const [copyMenuError, setCopyMenuError] = useState<string | null>(null);
 
   const formEventId = editingItem ? editingItem.event_id : addForEventId;
   const isEdit = !!editingItem;
+  const location =
+    locations.find((loc) => loc.id === selectedLocationId) ?? null;
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -89,16 +103,19 @@ export default function AdminMenuPage() {
 
   useEffect(() => {
     if (!user?.id) return;
-    supabase
-      .from("locations")
-      .select("id, name")
-      .eq("user_id", user.id)
-      .maybeSingle()
-      .then(({ data }) => setLocation(data ?? null));
+    Promise.all([checkIsSuperAdmin(user.id)]).then(async ([superAdmin]) => {
+      const managed = await getManagedLocations(user.id, superAdmin);
+      setIsSuperAdmin(superAdmin);
+      setLocations(managed);
+      setSelectedLocationId((prev) => {
+        if (prev && managed.some((loc) => loc.id === prev)) return prev;
+        return managed[0]?.id ?? "";
+      });
+    });
   }, [user?.id]);
 
   useEffect(() => {
-    if (!location?.id) {
+    if (!selectedLocationId) {
       setLoading(false);
       setEvents([]);
       return;
@@ -126,7 +143,7 @@ export default function AdminMenuPage() {
         )
       `
       )
-      .eq("location_id", location.id)
+      .eq("location_id", selectedLocationId)
       .order("event_date", { ascending: false })
       .then(({ data, error }) => {
         if (error) {
@@ -138,7 +155,7 @@ export default function AdminMenuPage() {
         }
         setLoading(false);
       });
-  }, [location?.id]);
+  }, [selectedLocationId]);
 
   function openAdd(eventId: string) {
     setEditingItem(null);
@@ -156,6 +173,72 @@ export default function AdminMenuPage() {
     setModalOpen(false);
     setEditingItem(null);
     setAddForEventId(null);
+  }
+
+  function openCopyMenu(sourceEventId: string) {
+    setCopySourceEventId(sourceEventId);
+    setCopyTargetEventId("");
+    setCopyMenuError(null);
+  }
+
+  function closeCopyMenu() {
+    setCopySourceEventId(null);
+    setCopyTargetEventId("");
+    setCopyMenuError(null);
+  }
+
+  async function handleCopyMenu() {
+    if (!copySourceEventId || !copyTargetEventId) {
+      setCopyMenuError("Please choose an event to copy to.");
+      return;
+    }
+    const sourceEvent = events.find((e) => e.id === copySourceEventId);
+    if (!sourceEvent) {
+      setCopyMenuError("Could not find source event.");
+      return;
+    }
+    if (sourceEvent.menu_items.length === 0) {
+      setCopyMenuError("Source event has no menu items to copy.");
+      return;
+    }
+
+    setCopyingMenu(true);
+    setCopyMenuError(null);
+    setCopyMenuMessage(null);
+
+    const payload = sourceEvent.menu_items.map((item) => ({
+      event_id: copyTargetEventId,
+      name: item.name,
+      description: item.description,
+      price: item.price,
+      category: item.category,
+      available: item.available,
+      prep_time_minutes: item.prep_time_minutes,
+      dietary_tags: item.dietary_tags,
+    }));
+
+    const { data, error } = await supabase
+      .from("menu_items")
+      .insert(payload)
+      .select("id, event_id, name, description, price, category, available, prep_time_minutes, dietary_tags");
+
+    setCopyingMenu(false);
+
+    if (error) {
+      setCopyMenuError(error.message || "Could not copy menu items.");
+      return;
+    }
+
+    const insertedItems = (data as MenuItemRow[]) ?? [];
+    setEvents((prev) =>
+      prev.map((e) =>
+        e.id === copyTargetEventId
+          ? { ...e, menu_items: [...insertedItems, ...e.menu_items] }
+          : e
+      )
+    );
+    setCopyMenuMessage(`Copied ${insertedItems.length} menu items successfully.`);
+    closeCopyMenu();
   }
 
   async function handleToggleAvailable(item: MenuItemRow) {
@@ -201,21 +284,47 @@ export default function AdminMenuPage() {
   return (
     <div className="min-h-screen bg-[#1e3a5f] flex flex-col">
       <header className="border-b border-[#2d5a87] bg-[#16324a] px-4 py-4 text-white shadow-lg sm:px-6 lg:px-8">
-        <div className="mx-auto max-w-4xl flex items-center gap-3">
-          <Link
-            href="/admin/dashboard"
-            className="text-sm font-medium text-amber-200 hover:text-amber-100"
-          >
-            ← Dashboard
-          </Link>
-          <h1 className="text-xl font-bold tracking-tight text-white sm:text-2xl">
-            Manage menu
-          </h1>
+        <div className="mx-auto max-w-4xl flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-3">
+            <Link
+              href="/admin/dashboard"
+              className="text-sm font-medium text-amber-200 hover:text-amber-100"
+            >
+              ← Dashboard
+            </Link>
+            <h1 className="text-xl font-bold tracking-tight text-white sm:text-2xl">
+              Manage menu
+            </h1>
+          </div>
+          {isSuperAdmin && locations.length > 0 && (
+            <div className="flex items-center gap-2">
+              <label htmlFor="menu-location-switcher" className="text-sm text-blue-100">
+                Location
+              </label>
+              <select
+                id="menu-location-switcher"
+                value={selectedLocationId}
+                onChange={(e) => setSelectedLocationId(e.target.value)}
+                className="rounded-lg border border-[#2d5a87] bg-white/10 px-3 py-2 text-sm text-white focus:border-[#c9a227] focus:outline-none"
+              >
+                {locations.map((loc) => (
+                  <option key={loc.id} value={loc.id} className="bg-[#16324a] text-white">
+                    {loc.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
         </div>
       </header>
 
       <main className="flex-1 px-4 py-6 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-4xl">
+          {copyMenuMessage && (
+            <p className="mb-4 rounded-lg bg-emerald-100 px-4 py-3 text-sm font-medium text-emerald-800">
+              {copyMenuMessage}
+            </p>
+          )}
           {loading ? (
             <p className="text-center text-amber-200 py-8">Loading…</p>
           ) : !location ? (
@@ -250,6 +359,13 @@ export default function AdminMenuPage() {
                       className="rounded-lg bg-[#c9a227] px-4 py-2 text-sm font-bold text-[#1e3a5f] hover:bg-[#d4af37]"
                     >
                       + Add item
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => openCopyMenu(event.id)}
+                      className="rounded-lg border border-[#2d5a87] bg-white px-4 py-2 text-sm font-medium text-[#1e3a5f] hover:bg-[#1e3a5f] hover:text-white"
+                    >
+                      Copy Menu
                     </button>
                   </div>
                   <div className="p-4 sm:p-5">
@@ -424,6 +540,63 @@ export default function AdminMenuPage() {
           }}
           onClose={closeModal}
         />
+      )}
+
+      {copySourceEventId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white shadow-xl">
+            <div className="border-b border-gray-100 px-5 py-4 sm:px-6">
+              <h3 className="text-lg font-bold text-[#1e3a5f]">Copy Menu</h3>
+              <p className="mt-1 text-sm text-gray-600">
+                Copy all menu items from this event to another event.
+              </p>
+            </div>
+            <div className="space-y-4 p-5 sm:p-6">
+              <div>
+                <label htmlFor="copy-target-event" className="block text-sm font-medium text-gray-700">
+                  Copy to event
+                </label>
+                <select
+                  id="copy-target-event"
+                  value={copyTargetEventId}
+                  onChange={(e) => setCopyTargetEventId(e.target.value)}
+                  className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-gray-900"
+                >
+                  <option value="">Select event…</option>
+                  {events
+                    .filter((e) => e.id !== copySourceEventId)
+                    .map((e) => (
+                      <option key={e.id} value={e.id}>
+                        {formatEventDate(e.event_date)}
+                      </option>
+                    ))}
+                </select>
+              </div>
+              {copyMenuError && (
+                <p className="text-sm text-red-600" role="alert">
+                  {copyMenuError}
+                </p>
+              )}
+              <div className="flex gap-3 pt-1">
+                <button
+                  type="button"
+                  onClick={closeCopyMenu}
+                  className="flex-1 rounded-lg border border-gray-300 px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCopyMenu}
+                  disabled={copyingMenu}
+                  className="flex-1 rounded-xl bg-[#c9a227] px-4 py-2.5 text-sm font-bold text-[#1e3a5f] hover:bg-[#d4af37] disabled:opacity-70"
+                >
+                  {copyingMenu ? "Copying…" : "Copy Menu"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

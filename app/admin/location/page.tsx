@@ -5,6 +5,11 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { fetchZipCoords } from "@/lib/geo";
+import {
+  checkIsSuperAdmin,
+  getManagedLocations,
+  type ManagedLocation,
+} from "@/lib/admin-access";
 
 type LocationRow = {
   id: string;
@@ -60,6 +65,9 @@ function formatTime(t: string | null) {
 export default function AdminLocationPage() {
   const router = useRouter();
   const [user, setUser] = useState<{ id: string } | null>(null);
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false);
+  const [locations, setLocations] = useState<ManagedLocation[]>([]);
+  const [selectedLocationId, setSelectedLocationId] = useState<string>("");
   const [location, setLocation] = useState<LocationRow | null>(null);
   const [events, setEvents] = useState<EventRow[]>([]);
   const [checking, setChecking] = useState(true);
@@ -68,6 +76,11 @@ export default function AdminLocationPage() {
   const [savingLocation, setSavingLocation] = useState(false);
   const [savingEvent, setSavingEvent] = useState(false);
   const [deleteConfirmEventId, setDeleteConfirmEventId] = useState<string | null>(null);
+  const [duplicateSourceEvent, setDuplicateSourceEvent] = useState<EventRow | null>(null);
+  const [duplicateEventDate, setDuplicateEventDate] = useState("");
+  const [duplicatingEvent, setDuplicatingEvent] = useState(false);
+  const [duplicateEventMessage, setDuplicateEventMessage] = useState<string | null>(null);
+  const [duplicateEventError, setDuplicateEventError] = useState<string | null>(null);
 
   const [name, setName] = useState("");
   const [address, setAddress] = useState("");
@@ -103,13 +116,30 @@ export default function AdminLocationPage() {
       setLoadingLocation(false);
       return;
     }
+    Promise.all([checkIsSuperAdmin(user.id)]).then(async ([superAdmin]) => {
+      const managed = await getManagedLocations(user.id, superAdmin);
+      setIsSuperAdmin(superAdmin);
+      setLocations(managed);
+      setSelectedLocationId((prev) => {
+        if (prev && managed.some((loc) => loc.id === prev)) return prev;
+        return managed[0]?.id ?? "";
+      });
+    });
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (!selectedLocationId) {
+      setLocation(null);
+      setLoadingLocation(false);
+      return;
+    }
     setLoadingLocation(true);
     supabase
       .from("locations")
       .select(
         "id, name, address, city, state, zip, lat, lng, type, description, contact_name, contact_email, contact_phone"
       )
-      .eq("user_id", user.id)
+      .eq("id", selectedLocationId)
       .maybeSingle()
       .then(({ data, error }) => {
         if (error) {
@@ -132,7 +162,7 @@ export default function AdminLocationPage() {
         }
         setLoadingLocation(false);
       });
-  }, [user?.id]);
+  }, [selectedLocationId]);
 
   useEffect(() => {
     if (!location?.id) {
@@ -243,6 +273,75 @@ export default function AdminLocationPage() {
     }
   }
 
+  function openDuplicateEvent(ev: EventRow) {
+    setDuplicateSourceEvent(ev);
+    setDuplicateEventDate("");
+    setDuplicateEventError(null);
+  }
+
+  function closeDuplicateEvent() {
+    setDuplicateSourceEvent(null);
+    setDuplicateEventDate("");
+    setDuplicateEventError(null);
+  }
+
+  async function handleDuplicateEventSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!duplicateSourceEvent || !location?.id) return;
+    if (!duplicateEventDate) {
+      setDuplicateEventError("Please choose a date.");
+      return;
+    }
+    setDuplicatingEvent(true);
+    setDuplicateEventError(null);
+    setDuplicateEventMessage(null);
+
+    const { data: createdEvent, error: eventError } = await supabase
+      .from("events")
+      .insert({
+        location_id: location.id,
+        event_date: duplicateEventDate,
+        start_time: duplicateSourceEvent.start_time,
+        end_time: duplicateSourceEvent.end_time,
+        dine_in: duplicateSourceEvent.dine_in,
+        pickup: duplicateSourceEvent.pickup,
+        notes: duplicateSourceEvent.notes,
+        active: true,
+      })
+      .select("id, event_date, start_time, end_time, dine_in, pickup, notes")
+      .single();
+
+    if (eventError || !createdEvent) {
+      setDuplicatingEvent(false);
+      setDuplicateEventError(eventError?.message || "Could not duplicate event.");
+      return;
+    }
+
+    const { data: sourceMenuItems } = await supabase
+      .from("menu_items")
+      .select("name, description, price, category, available, prep_time_minutes, dietary_tags")
+      .eq("event_id", duplicateSourceEvent.id);
+
+    if (sourceMenuItems && sourceMenuItems.length > 0) {
+      const copiedItems = sourceMenuItems.map((item) => ({
+        event_id: createdEvent.id,
+        name: item.name,
+        description: item.description,
+        price: item.price,
+        category: item.category,
+        available: item.available,
+        prep_time_minutes: item.prep_time_minutes,
+        dietary_tags: item.dietary_tags,
+      }));
+      await supabase.from("menu_items").insert(copiedItems);
+    }
+
+    setEvents((prev) => [createdEvent as EventRow, ...prev]);
+    setDuplicatingEvent(false);
+    setDuplicateEventMessage("Event duplicated successfully.");
+    closeDuplicateEvent();
+  }
+
   if (checking) {
     return (
       <div className="min-h-screen bg-[#1e3a5f] flex items-center justify-center">
@@ -256,21 +355,61 @@ export default function AdminLocationPage() {
   return (
     <div className="min-h-screen bg-[#1e3a5f] flex flex-col">
       <header className="border-b border-[#2d5a87] bg-[#16324a] px-4 py-4 text-white shadow-lg sm:px-6 lg:px-8">
-        <div className="mx-auto max-w-4xl flex items-center gap-3">
-          <Link
-            href="/admin/dashboard"
-            className="text-sm font-medium text-amber-200 hover:text-amber-100"
-          >
-            ← Dashboard
-          </Link>
-          <h1 className="text-xl font-bold tracking-tight text-white sm:text-2xl">
-            Manage location
-          </h1>
+        <div className="mx-auto max-w-4xl flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-3">
+            <Link
+              href="/admin/dashboard"
+              className="text-sm font-medium text-amber-200 hover:text-amber-100"
+            >
+              ← Dashboard
+            </Link>
+            <h1 className="text-xl font-bold tracking-tight text-white sm:text-2xl">
+              Manage location
+            </h1>
+          </div>
+          {isSuperAdmin && locations.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  const section = document.getElementById("add-event-section");
+                  section?.scrollIntoView({ behavior: "smooth", block: "start" });
+                  setTimeout(() => {
+                    const input = document.getElementById("ev-date");
+                    if (input instanceof HTMLInputElement) input.focus();
+                  }, 250);
+                }}
+                className="rounded-lg bg-[#c9a227] px-3 py-2 text-sm font-bold text-[#1e3a5f] hover:bg-[#d4af37]"
+              >
+                Add New Event
+              </button>
+              <label htmlFor="location-switcher" className="text-sm text-blue-100">
+                Location
+              </label>
+              <select
+                id="location-switcher"
+                value={selectedLocationId}
+                onChange={(e) => setSelectedLocationId(e.target.value)}
+                className="rounded-lg border border-[#2d5a87] bg-white/10 px-3 py-2 text-sm text-white focus:border-[#c9a227] focus:outline-none"
+              >
+                {locations.map((loc) => (
+                  <option key={loc.id} value={loc.id} className="bg-[#16324a] text-white">
+                    {loc.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
         </div>
       </header>
 
       <main className="flex-1 px-4 py-6 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-4xl space-y-6">
+          {duplicateEventMessage && (
+            <p className="rounded-lg bg-emerald-100 px-4 py-3 text-sm font-medium text-emerald-800">
+              {duplicateEventMessage}
+            </p>
+          )}
           {loadingLocation ? (
             <p className="text-amber-200 py-4">Loading location…</p>
           ) : !location ? (
@@ -441,7 +580,11 @@ export default function AdminLocationPage() {
                   </p>
                 </div>
                 <div className="p-4 sm:p-5 space-y-6">
-                  <form onSubmit={handleAddEvent} className="rounded-xl border border-[#2d5a87] bg-gray-50/50 p-4 space-y-4">
+                  <form
+                    id="add-event-section"
+                    onSubmit={handleAddEvent}
+                    className="rounded-xl border border-[#2d5a87] bg-gray-50/50 p-4 space-y-4"
+                  >
                     <h3 className="font-semibold text-[#1e3a5f]">Add event</h3>
                     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                       <div>
@@ -584,6 +727,13 @@ export default function AdminLocationPage() {
                                 Delete
                               </button>
                             )}
+                            <button
+                              type="button"
+                              onClick={() => openDuplicateEvent(ev)}
+                              className="rounded-lg border border-[#2d5a87] px-3 py-1.5 text-xs font-medium text-[#1e3a5f] hover:bg-[#1e3a5f] hover:text-white"
+                            >
+                              Duplicate Event
+                            </button>
                           </div>
                         </li>
                       ))}
@@ -595,6 +745,55 @@ export default function AdminLocationPage() {
           )}
         </div>
       </main>
+
+      {duplicateSourceEvent && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white shadow-xl">
+            <div className="border-b border-gray-100 px-5 py-4 sm:px-6">
+              <h3 className="text-lg font-bold text-[#1e3a5f]">Duplicate Event</h3>
+              <p className="mt-1 text-sm text-gray-600">
+                Choose a new date for the duplicated event.
+              </p>
+            </div>
+            <form onSubmit={handleDuplicateEventSubmit} className="space-y-4 p-5 sm:p-6">
+              <div>
+                <label htmlFor="duplicate-event-date" className="block text-sm font-medium text-gray-700">
+                  New event date
+                </label>
+                <input
+                  id="duplicate-event-date"
+                  type="date"
+                  required
+                  value={duplicateEventDate}
+                  onChange={(e) => setDuplicateEventDate(e.target.value)}
+                  className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-gray-900"
+                />
+              </div>
+              {duplicateEventError && (
+                <p className="text-sm text-red-600" role="alert">
+                  {duplicateEventError}
+                </p>
+              )}
+              <div className="flex gap-3 pt-1">
+                <button
+                  type="button"
+                  onClick={closeDuplicateEvent}
+                  className="flex-1 rounded-lg border border-gray-300 px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={duplicatingEvent}
+                  className="flex-1 rounded-xl bg-[#c9a227] px-4 py-2.5 text-sm font-bold text-[#1e3a5f] hover:bg-[#d4af37] disabled:opacity-70"
+                >
+                  {duplicatingEvent ? "Duplicating…" : "Duplicate"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
