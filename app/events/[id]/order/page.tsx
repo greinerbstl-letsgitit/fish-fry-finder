@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { OrderForm } from "./OrderForm";
+import { Navbar } from "@/app/components/Navbar";
 
 function formatEventDate(dateStr: string) {
   const d = new Date(dateStr + "T12:00:00");
@@ -92,8 +93,9 @@ export default async function OrderPage({
 
   return (
     <div className="min-h-screen bg-[#1e3a5f]">
-      <header className="border-b border-[#2d5a87] bg-[#16324a] px-4 py-6 text-white shadow-lg sm:px-6 lg:px-8">
-        <div className="mx-auto max-w-3xl">
+      <header className="border-b border-[#2d5a87] bg-[#16324a] text-white shadow-lg">
+        <Navbar />
+        <div className="mx-auto max-w-3xl px-4 py-6 sm:px-6 lg:px-8">
           <Link
             href={`/events/${id}`}
             className="inline-flex items-center text-sm font-medium text-amber-200 hover:text-amber-100"
