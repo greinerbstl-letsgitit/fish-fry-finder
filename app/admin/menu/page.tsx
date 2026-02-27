@@ -20,6 +20,8 @@ type MenuItemRow = {
   available: boolean;
   prep_time_minutes: number | null;
   dietary_tags: string[] | null;
+  dine_in_only?: boolean;
+  pickup_only?: boolean;
 };
 
 type EventRow = {
@@ -139,7 +141,9 @@ export default function AdminMenuPage() {
           category,
           available,
           prep_time_minutes,
-          dietary_tags
+          dietary_tags,
+          dine_in_only,
+          pickup_only
         )
       `
       )
@@ -215,12 +219,14 @@ export default function AdminMenuPage() {
       available: item.available,
       prep_time_minutes: item.prep_time_minutes,
       dietary_tags: item.dietary_tags,
+      dine_in_only: item.dine_in_only ?? false,
+      pickup_only: item.pickup_only ?? false,
     }));
 
     const { data, error } = await supabase
       .from("menu_items")
       .insert(payload)
-      .select("id, event_id, name, description, price, category, available, prep_time_minutes, dietary_tags");
+      .select("id, event_id, name, description, price, category, available, prep_time_minutes, dietary_tags, dine_in_only, pickup_only");
 
     setCopyingMenu(false);
 
@@ -492,6 +498,8 @@ export default function AdminMenuPage() {
                   category: payload.category,
                   prep_time_minutes: payload.prep_time_minutes || null,
                   dietary_tags: payload.dietary_tags,
+                  dine_in_only: payload.dine_in_only,
+                  pickup_only: payload.pickup_only,
                 })
                 .eq("id", editingItem.id);
               if (!error) {
@@ -518,9 +526,11 @@ export default function AdminMenuPage() {
                   category: payload.category,
                   prep_time_minutes: payload.prep_time_minutes || null,
                   dietary_tags: payload.dietary_tags,
+                  dine_in_only: payload.dine_in_only,
+                  pickup_only: payload.pickup_only,
                   available: true,
                 })
-                .select("id, event_id, name, description, price, category, available, prep_time_minutes, dietary_tags")
+                .select("id, event_id, name, description, price, category, available, prep_time_minutes, dietary_tags, dine_in_only, pickup_only")
                 .single();
               if (!error && newItem) {
                 setEvents((prev) =>
@@ -628,6 +638,8 @@ function ItemFormModal({
     category: string;
     prep_time_minutes: number | null;
     dietary_tags: string[];
+    dine_in_only: boolean;
+    pickup_only: boolean;
   }) => Promise<void>;
   onClose: () => void;
 }) {
@@ -647,6 +659,12 @@ function ItemFormModal({
   const [dietaryTags, setDietaryTags] = useState<string[]>(
     initialItem?.dietary_tags ?? []
   );
+  const [dineInOnly, setDineInOnly] = useState(
+    initialItem?.dine_in_only ?? false
+  );
+  const [pickupOnly, setPickupOnly] = useState(
+    initialItem?.pickup_only ?? false
+  );
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -661,6 +679,8 @@ function ItemFormModal({
       category: category.trim() || "other",
       prep_time_minutes: numPrep ?? null,
       dietary_tags: dietaryTags,
+      dine_in_only: dineInOnly,
+      pickup_only: pickupOnly,
     });
   }
 
@@ -743,6 +763,42 @@ function ItemFormModal({
               placeholder="Optional"
               className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-gray-900"
             />
+          </div>
+          <div>
+            <p className="block text-sm font-medium text-gray-700">
+              Availability
+            </p>
+            <p className="mt-0.5 text-xs text-gray-500">
+              Only one can be selected. If neither is selected, the item is available for both dine-in and pickup.
+            </p>
+            <div className="mt-2 flex gap-4">
+              <label className="inline-flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={dineInOnly}
+                  onChange={(e) => {
+                    const checked = e.target.checked;
+                    setDineInOnly(checked);
+                    if (checked) setPickupOnly(false);
+                  }}
+                  className="rounded border-gray-300 text-[#1e3a5f] focus:ring-[#1e3a5f]"
+                />
+                <span className="text-sm text-gray-700">Dine-in only</span>
+              </label>
+              <label className="inline-flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={pickupOnly}
+                  onChange={(e) => {
+                    const checked = e.target.checked;
+                    setPickupOnly(checked);
+                    if (checked) setDineInOnly(false);
+                  }}
+                  className="rounded border-gray-300 text-[#1e3a5f] focus:ring-[#1e3a5f]"
+                />
+                <span className="text-sm text-gray-700">Pickup only</span>
+              </label>
+            </div>
           </div>
           <div>
             <p className="block text-sm font-medium text-gray-700">Dietary tags</p>

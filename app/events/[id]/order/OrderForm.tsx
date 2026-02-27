@@ -30,6 +30,8 @@ type MenuItem = {
   category: string;
   prep_time_minutes?: number | null;
   dietary_tags?: string[] | null;
+  dine_in_only?: boolean;
+  pickup_only?: boolean;
 };
 
 type EventData = {
@@ -112,7 +114,14 @@ export function OrderForm({ eventId, locationName, event, menuItems }: Props) {
     });
   };
 
-  const byCategory = menuItems.reduce<Record<string, MenuItem[]>>((acc, item) => {
+  const filteredMenuItems = menuItems.filter((item) => {
+    const dineIn = item.dine_in_only ?? false;
+    const pickup = item.pickup_only ?? false;
+    if (orderType === "dine_in") return !pickup;
+    return !dineIn;
+  });
+
+  const byCategory = filteredMenuItems.reduce<Record<string, MenuItem[]>>((acc, item) => {
     const cat = item.category || "Other";
     if (!acc[cat]) acc[cat] = [];
     acc[cat].push(item);
@@ -125,7 +134,7 @@ export function OrderForm({ eventId, locationName, event, menuItems }: Props) {
 
   let total = 0;
   const lineItems: { item: MenuItem; qty: number; unitPrice: number }[] = [];
-  menuItems.forEach((item) => {
+  filteredMenuItems.forEach((item) => {
     const qty = quantities[item.id] ?? 0;
     if (qty > 0) {
       const unitPrice = getPrice(item);
@@ -152,7 +161,7 @@ export function OrderForm({ eventId, locationName, event, menuItems }: Props) {
       return;
     }
     setSubmitting(true);
-    const items = menuItems
+    const items = filteredMenuItems
       .filter((m) => (quantities[m.id] ?? 0) > 0)
       .map((m) => ({
         menu_item_id: m.id,
@@ -341,6 +350,9 @@ export function OrderForm({ eventId, locationName, event, menuItems }: Props) {
             </label>
           )}
         </div>
+        <p className="mt-2 text-xs text-gray-500">
+          Menu options may vary between dine-in and pickup.
+        </p>
         {orderType === "pickup" && (
           <div className="mt-4">
             <label
