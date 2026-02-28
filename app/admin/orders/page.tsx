@@ -24,7 +24,6 @@ type OrderRow = {
   customer_phone: string | null;
   customer_email: string | null;
   order_type: string;
-  pickup_time: string | null;
   notes: string | null;
   status: string;
   created_at: string;
@@ -131,7 +130,6 @@ export default function AdminOrdersPage() {
             customer_phone,
             customer_email,
             order_type,
-            pickup_time,
             notes,
             status,
             created_at,
@@ -299,14 +297,6 @@ export default function AdminOrdersPage() {
                             {order.order_type.replace("_", "-")}
                           </dd>
                         </div>
-                        {order.pickup_time && (
-                          <div>
-                            <dt className="text-gray-500">Pickup time</dt>
-                            <dd className="font-medium text-gray-900">
-                              {order.pickup_time}
-                            </dd>
-                          </div>
-                        )}
                       </dl>
 
                       {order.notes && (

@@ -92,7 +92,6 @@ export function OrderForm({ eventId, locationName, event, menuItems }: Props) {
   const [orderType, setOrderType] = useState<"dine_in" | "pickup">(
     event.dine_in ? "dine_in" : "pickup"
   );
-  const [preferredPickupTime, setPreferredPickupTime] = useState("");
   const [notes, setNotes] = useState("");
   const [quantities, setQuantities] = useState<Record<string, number>>({});
   const [submitting, setSubmitting] = useState(false);
@@ -102,7 +101,6 @@ export function OrderForm({ eventId, locationName, event, menuItems }: Props) {
     total: number;
     customer_name: string;
     order_type: string;
-    pickup_time: string;
     lineItems: { name: string; qty: number; unitPrice: number }[];
     estimatedWaitMinutes?: number;
   } | null>(null);
@@ -177,7 +175,6 @@ export function OrderForm({ eventId, locationName, event, menuItems }: Props) {
         customer_phone: phone.trim(),
         customer_email: email.trim(),
         order_type: orderType,
-        pickup_time: preferredPickupTime.trim(),
         notes: notes.trim(),
         estimatedWaitMinutes,
       },
@@ -191,7 +188,6 @@ export function OrderForm({ eventId, locationName, event, menuItems }: Props) {
         total,
         customer_name: result.order.customer_name,
         order_type: orderType,
-        pickup_time: preferredPickupTime.trim(),
         lineItems: lineItems.map(({ item, qty, unitPrice }) => ({
           name: item.name,
           qty,
@@ -224,16 +220,15 @@ export function OrderForm({ eventId, locationName, event, menuItems }: Props) {
               {confirmation.order_type.replace("_", "-")}
             </dd>
           </div>
-          {confirmation.pickup_time && (
-            <div>
-              <dt className="font-medium text-gray-500">Preferred pickup time</dt>
-              <dd className="text-gray-900">{confirmation.pickup_time}</dd>
-            </div>
-          )}
+          <div>
+            <p className="text-gray-600">
+              You will receive an email notification when your order is ready. Estimated wait time is based on your selected items.
+            </p>
+          </div>
           {confirmation.estimatedWaitMinutes != null && (
-            <div>
+            <div className="mt-3 p-3 rounded-lg bg-[#1e3a5f]/10">
               <dt className="font-medium text-gray-500">Estimated wait time</dt>
-              <dd className="text-gray-900">
+              <dd className="text-lg font-bold text-[#1e3a5f]">
                 {confirmation.estimatedWaitMinutes} minutes
               </dd>
             </div>
@@ -353,24 +348,6 @@ export function OrderForm({ eventId, locationName, event, menuItems }: Props) {
         <p className="mt-2 text-xs text-gray-500">
           Menu options may vary between dine-in and pickup.
         </p>
-        {orderType === "pickup" && (
-          <div className="mt-4">
-            <label
-              htmlFor="pickupTime"
-              className="block text-sm font-medium text-gray-700"
-            >
-              Preferred pickup time
-            </label>
-            <input
-              id="pickupTime"
-              type="text"
-              value={preferredPickupTime}
-              onChange={(e) => setPreferredPickupTime(e.target.value)}
-              className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-gray-900 shadow-sm focus:border-[#1e3a5f] focus:ring-1 focus:ring-[#1e3a5f]"
-              placeholder="e.g. 5:00 PM"
-            />
-          </div>
-        )}
       </section>
 
       {/* Menu items with quantity */}
@@ -476,7 +453,7 @@ export function OrderForm({ eventId, locationName, event, menuItems }: Props) {
           <span className="text-xl">{formatPrice(total)}</span>
         </div>
         {estimatedWaitMinutes != null && (
-          <p className="mt-2 text-gray-600">
+          <p className="mt-2 text-lg font-semibold text-[#1e3a5f]">
             Estimated wait time: {estimatedWaitMinutes} minutes
           </p>
         )}

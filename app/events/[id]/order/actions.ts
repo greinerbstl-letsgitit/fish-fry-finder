@@ -8,7 +8,6 @@ type OrderData = {
   customer_phone: string;
   customer_email: string;
   order_type: "dine_in" | "pickup";
-  pickup_time: string;
   notes: string;
   estimatedWaitMinutes?: number;
 };
@@ -33,7 +32,6 @@ export async function placeOrder(
       customer_phone: orderData.customer_phone.trim() || null,
       customer_email: orderData.customer_email.trim() || null,
       order_type: orderData.order_type,
-      pickup_time: orderData.pickup_time.trim() || null,
       notes: orderData.notes.trim() || null,
       status: "pending",
     })
@@ -103,7 +101,6 @@ export async function placeOrder(
       })),
       total,
       estimatedWaitMinutes: orderData.estimatedWaitMinutes,
-      pickupTime: orderData.pickup_time.trim() || null,
     });
   }
 

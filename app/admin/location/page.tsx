@@ -44,6 +44,40 @@ const LOCATION_TYPES = [
   { value: "other", label: "Other" },
 ];
 
+const DAYS_OF_WEEK = [
+  { value: 0, label: "Sunday" },
+  { value: 1, label: "Monday" },
+  { value: 2, label: "Tuesday" },
+  { value: 3, label: "Wednesday" },
+  { value: 4, label: "Thursday" },
+  { value: 5, label: "Friday" },
+  { value: 6, label: "Saturday" },
+];
+
+function getRecurringDates(
+  startDate: string,
+  endDate: string,
+  dayOfWeek: number
+): string[] {
+  if (!startDate || !endDate) return [];
+  const dates: string[] = [];
+  const start = new Date(startDate + "T12:00:00");
+  const end = new Date(endDate + "T12:00:00");
+  if (start > end) return [];
+
+  const current = new Date(start);
+  while (current.getDay() !== dayOfWeek) {
+    current.setDate(current.getDate() + 1);
+    if (current > end) return dates;
+  }
+
+  while (current <= end) {
+    dates.push(current.toISOString().split("T")[0]);
+    current.setDate(current.getDate() + 7);
+  }
+  return dates;
+}
+
 function formatEventDate(dateStr: string) {
   const d = new Date(dateStr + "T12:00:00");
   return d.toLocaleDateString("en-US", {
@@ -81,6 +115,19 @@ export default function AdminLocationPage() {
   const [duplicatingEvent, setDuplicatingEvent] = useState(false);
   const [duplicateEventMessage, setDuplicateEventMessage] = useState<string | null>(null);
   const [duplicateEventError, setDuplicateEventError] = useState<string | null>(null);
+
+  const [recurringModalOpen, setRecurringModalOpen] = useState(false);
+  const [recurringStartDate, setRecurringStartDate] = useState("");
+  const [recurringEndDate, setRecurringEndDate] = useState("");
+  const [recurringDayOfWeek, setRecurringDayOfWeek] = useState(5);
+  const [recurringStartTime, setRecurringStartTime] = useState("");
+  const [recurringEndTime, setRecurringEndTime] = useState("");
+  const [recurringDineIn, setRecurringDineIn] = useState(true);
+  const [recurringPickup, setRecurringPickup] = useState(true);
+  const [recurringNotes, setRecurringNotes] = useState("");
+  const [recurringCreating, setRecurringCreating] = useState(false);
+  const [recurringError, setRecurringError] = useState<string | null>(null);
+  const [recurringSuccessCount, setRecurringSuccessCount] = useState<number | null>(null);
 
   const [name, setName] = useState("");
   const [address, setAddress] = useState("");
@@ -341,6 +388,82 @@ export default function AdminLocationPage() {
     setDuplicateEventMessage("Event duplicated successfully.");
     closeDuplicateEvent();
   }
+
+  function openRecurringModal() {
+    setRecurringModalOpen(true);
+    setRecurringError(null);
+    setRecurringSuccessCount(null);
+  }
+
+  function closeRecurringModal() {
+    const count = recurringSuccessCount;
+    setRecurringModalOpen(false);
+    setRecurringStartDate("");
+    setRecurringEndDate("");
+    setRecurringDayOfWeek(5);
+    setRecurringStartTime("");
+    setRecurringEndTime("");
+    setRecurringDineIn(true);
+    setRecurringPickup(true);
+    setRecurringNotes("");
+    setRecurringError(null);
+    setRecurringSuccessCount(null);
+    if (count != null) {
+      setDuplicateEventMessage(
+        `Successfully created ${count} recurring event${count !== 1 ? "s" : ""}.`
+      );
+    }
+  }
+
+  async function handleCreateRecurringEvents(e: React.FormEvent) {
+    e.preventDefault();
+    if (!location?.id) return;
+    const previewDates = getRecurringDates(
+      recurringStartDate,
+      recurringEndDate,
+      recurringDayOfWeek
+    );
+    if (previewDates.length === 0) {
+      setRecurringError("No dates match. Check start date, end date, and day of week.");
+      return;
+    }
+
+    setRecurringCreating(true);
+    setRecurringError(null);
+
+    const payloads = previewDates.map((event_date) => ({
+      location_id: location.id,
+      event_date,
+      start_time: recurringStartTime || null,
+      end_time: recurringEndTime || null,
+      dine_in: recurringDineIn,
+      pickup: recurringPickup,
+      notes: recurringNotes.trim() || null,
+      active: true,
+    }));
+
+    const { data: inserted, error } = await supabase
+      .from("events")
+      .insert(payloads)
+      .select("id, event_date, start_time, end_time, dine_in, pickup, notes");
+
+    setRecurringCreating(false);
+
+    if (error) {
+      setRecurringError(error.message || "Could not create events.");
+      return;
+    }
+
+    const created = (inserted as EventRow[]) ?? [];
+    setEvents((prev) => [...created, ...prev]);
+    setRecurringSuccessCount(created.length);
+  }
+
+  const recurringPreviewDates = getRecurringDates(
+    recurringStartDate,
+    recurringEndDate,
+    recurringDayOfWeek
+  );
 
   if (checking) {
     return (
@@ -673,6 +796,14 @@ export default function AdminLocationPage() {
                     </button>
                   </form>
 
+                  <button
+                    type="button"
+                    onClick={openRecurringModal}
+                    className="rounded-xl border border-[#2d5a87] bg-white px-4 py-2.5 text-sm font-bold text-[#1e3a5f] hover:bg-[#1e3a5f] hover:text-white transition"
+                  >
+                    Create Recurring Events
+                  </button>
+
                   {loadingEvents ? (
                     <p className="text-gray-500 text-sm py-2">Loading events…</p>
                   ) : events.length === 0 ? (
@@ -745,6 +876,165 @@ export default function AdminLocationPage() {
           )}
         </div>
       </main>
+
+      {recurringModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 overflow-y-auto">
+          <div className="w-full max-w-lg rounded-2xl bg-white shadow-xl my-8">
+            <div className="border-b border-gray-100 px-5 py-4 sm:px-6">
+              <h3 className="text-lg font-bold text-[#1e3a5f]">Create Recurring Events</h3>
+              <p className="mt-1 text-sm text-gray-600">
+                Create multiple events for the same day of the week between a start and end date.
+              </p>
+            </div>
+            <form onSubmit={handleCreateRecurringEvents} className="space-y-4 p-5 sm:p-6 max-h-[80vh] overflow-y-auto">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label htmlFor="rec-start" className="block text-sm font-medium text-gray-700">
+                    Start date
+                  </label>
+                  <input
+                    id="rec-start"
+                    type="date"
+                    required
+                    value={recurringStartDate}
+                    onChange={(e) => setRecurringStartDate(e.target.value)}
+                    className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-gray-900"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="rec-end" className="block text-sm font-medium text-gray-700">
+                    End date
+                  </label>
+                  <input
+                    id="rec-end"
+                    type="date"
+                    required
+                    value={recurringEndDate}
+                    onChange={(e) => setRecurringEndDate(e.target.value)}
+                    className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-gray-900"
+                  />
+                </div>
+              </div>
+              <div>
+                <label htmlFor="rec-day" className="block text-sm font-medium text-gray-700">
+                  Repeat on
+                </label>
+                <select
+                  id="rec-day"
+                  value={recurringDayOfWeek}
+                  onChange={(e) => setRecurringDayOfWeek(Number(e.target.value))}
+                  className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-gray-900"
+                >
+                  {DAYS_OF_WEEK.map((d) => (
+                    <option key={d.value} value={d.value}>
+                      {d.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label htmlFor="rec-start-time" className="block text-sm font-medium text-gray-700">
+                    Start time
+                  </label>
+                  <input
+                    id="rec-start-time"
+                    type="time"
+                    value={recurringStartTime}
+                    onChange={(e) => setRecurringStartTime(e.target.value)}
+                    className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-gray-900"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="rec-end-time" className="block text-sm font-medium text-gray-700">
+                    End time
+                  </label>
+                  <input
+                    id="rec-end-time"
+                    type="time"
+                    value={recurringEndTime}
+                    onChange={(e) => setRecurringEndTime(e.target.value)}
+                    className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-gray-900"
+                  />
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-6">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={recurringDineIn}
+                    onChange={(e) => setRecurringDineIn(e.target.checked)}
+                    className="rounded border-gray-300 text-[#1e3a5f] focus:ring-[#1e3a5f]"
+                  />
+                  <span className="text-sm font-medium text-gray-700">Dine-in available</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={recurringPickup}
+                    onChange={(e) => setRecurringPickup(e.target.checked)}
+                    className="rounded border-gray-300 text-[#1e3a5f] focus:ring-[#1e3a5f]"
+                  />
+                  <span className="text-sm font-medium text-gray-700">Pickup available</span>
+                </label>
+              </div>
+              <div>
+                <label htmlFor="rec-notes" className="block text-sm font-medium text-gray-700">
+                  Notes
+                </label>
+                <textarea
+                  id="rec-notes"
+                  rows={2}
+                  value={recurringNotes}
+                  onChange={(e) => setRecurringNotes(e.target.value)}
+                  className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-gray-900"
+                  placeholder="Optional"
+                />
+              </div>
+              {recurringPreviewDates.length > 0 && (
+                <div className="rounded-lg border border-[#2d5a87] bg-[#1e3a5f]/5 p-4">
+                  <p className="text-sm font-semibold text-[#1e3a5f]">
+                    Preview: {recurringPreviewDates.length} event{recurringPreviewDates.length !== 1 ? "s" : ""} will be created
+                  </p>
+                  <ul className="mt-2 text-sm text-gray-700 space-y-1 max-h-32 overflow-y-auto">
+                    {recurringPreviewDates.map((d) => (
+                      <li key={d}>{formatEventDate(d)}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {recurringError && (
+                <p className="text-sm text-red-600" role="alert">
+                  {recurringError}
+                </p>
+              )}
+              {recurringSuccessCount != null && (
+                <p className="rounded-lg bg-emerald-100 px-4 py-3 text-sm font-medium text-emerald-800">
+                  Successfully created {recurringSuccessCount} event{recurringSuccessCount !== 1 ? "s" : ""}.
+                </p>
+              )}
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={closeRecurringModal}
+                  className="flex-1 rounded-lg border border-gray-300 px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                >
+                  {recurringSuccessCount != null ? "Close" : "Cancel"}
+                </button>
+                {recurringSuccessCount == null && (
+                  <button
+                    type="submit"
+                    disabled={recurringCreating || recurringPreviewDates.length === 0}
+                    className="flex-1 rounded-xl bg-[#c9a227] px-4 py-2.5 text-sm font-bold text-[#1e3a5f] hover:bg-[#d4af37] disabled:opacity-70"
+                  >
+                    {recurringCreating ? "Creating…" : `Create ${recurringPreviewDates.length} event${recurringPreviewDates.length !== 1 ? "s" : ""}`}
+                  </button>
+                )}
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {duplicateSourceEvent && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">

@@ -128,16 +128,7 @@ export default async function EventPage({
   const zip = loc?.zip ?? "";
   const cityStateZip = [city, state, zip].filter(Boolean).join(", ");
 
-  const hasBothDineInAndPickup = event.dine_in && event.pickup;
-  const filteredMenuItems = menuItems.filter((item) => {
-    const dineInOnly = item.dine_in_only ?? false;
-    const pickupOnly = item.pickup_only ?? false;
-    if (!event.dine_in && event.pickup) return !dineInOnly;
-    if (event.dine_in && !event.pickup) return !pickupOnly;
-    return true;
-  });
-
-  const byCategory = filteredMenuItems.reduce<Record<string, typeof filteredMenuItems>>(
+  const byCategory = menuItems.reduce<Record<string, typeof menuItems>>(
     (acc, item) => {
       const cat = item.category || "Other";
       if (!acc[cat]) acc[cat] = [];
@@ -229,12 +220,12 @@ export default async function EventPage({
                               </p>
                             )}
                             <div className="mt-2 flex flex-wrap gap-1.5">
-                              {hasBothDineInAndPickup && (item.dine_in_only ?? false) && (
+                              {(item.dine_in_only ?? false) && (
                                 <span className="inline-flex items-center rounded-full bg-[#1e3a5f]/15 px-2 py-0.5 text-xs font-medium text-[#1e3a5f]">
                                   Dine-In Only
                                 </span>
                               )}
-                              {hasBothDineInAndPickup && (item.pickup_only ?? false) && (
+                              {(item.pickup_only ?? false) && (
                                 <span className="inline-flex items-center rounded-full bg-[#c9a227]/25 px-2 py-0.5 text-xs font-medium text-[#b8941f]">
                                   Pickup Only
                                 </span>
