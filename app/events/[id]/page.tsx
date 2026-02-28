@@ -89,7 +89,7 @@ async function getEventById(id: string) {
 async function getMenuItems(eventId: string) {
   const { data, error } = await supabase
     .from("menu_items")
-    .select("id, name, description, price, category, dietary_tags")
+    .select("id, name, description, price, category, dietary_tags, dine_in_only, pickup_only")
     .eq("event_id", eventId)
     .eq("available", true)
     .order("category")
@@ -128,7 +128,16 @@ export default async function EventPage({
   const zip = loc?.zip ?? "";
   const cityStateZip = [city, state, zip].filter(Boolean).join(", ");
 
-  const byCategory = menuItems.reduce<Record<string, typeof menuItems>>(
+  const hasBothDineInAndPickup = event.dine_in && event.pickup;
+  const filteredMenuItems = menuItems.filter((item) => {
+    const dineInOnly = item.dine_in_only ?? false;
+    const pickupOnly = item.pickup_only ?? false;
+    if (!event.dine_in && event.pickup) return !dineInOnly;
+    if (event.dine_in && !event.pickup) return !pickupOnly;
+    return true;
+  });
+
+  const byCategory = filteredMenuItems.reduce<Record<string, typeof filteredMenuItems>>(
     (acc, item) => {
       const cat = item.category || "Other";
       if (!acc[cat]) acc[cat] = [];
@@ -219,21 +228,30 @@ export default async function EventPage({
                                 {item.description}
                               </p>
                             )}
-                            {Array.isArray(item.dietary_tags) &&
-                              item.dietary_tags.length > 0 && (
-                                <div className="mt-2 flex flex-wrap gap-1.5">
-                                  {item.dietary_tags.map((tag: string) => (
-                                    <span
-                                      key={tag}
-                                      className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${getDietaryTagClasses(
-                                        tag
-                                      )}`}
-                                    >
-                                      {tag}
-                                    </span>
-                                  ))}
-                                </div>
+                            <div className="mt-2 flex flex-wrap gap-1.5">
+                              {hasBothDineInAndPickup && (item.dine_in_only ?? false) && (
+                                <span className="inline-flex items-center rounded-full bg-[#1e3a5f]/15 px-2 py-0.5 text-xs font-medium text-[#1e3a5f]">
+                                  Dine-In Only
+                                </span>
                               )}
+                              {hasBothDineInAndPickup && (item.pickup_only ?? false) && (
+                                <span className="inline-flex items-center rounded-full bg-[#c9a227]/25 px-2 py-0.5 text-xs font-medium text-[#b8941f]">
+                                  Pickup Only
+                                </span>
+                              )}
+                              {Array.isArray(item.dietary_tags) &&
+                                item.dietary_tags.length > 0 &&
+                                item.dietary_tags.map((tag: string) => (
+                                  <span
+                                    key={tag}
+                                    className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${getDietaryTagClasses(
+                                      tag
+                                    )}`}
+                                  >
+                                    {tag}
+                                  </span>
+                                ))}
+                            </div>
                           </div>
                           <p className="mt-1 shrink-0 font-semibold text-[#1e3a5f] sm:mt-0">
                             {formatPrice(item.price)}
