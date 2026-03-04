@@ -50,7 +50,7 @@ function getDietaryTagClasses(tag: string) {
   }
 }
 
-const CATEGORY_ORDER = ["fish", "sides", "drinks", "desserts"];
+const CATEGORY_ORDER = ["entree", "sides", "drinks", "desserts"];
 
 function sortCategories(categories: string[]) {
   return [...categories].sort((a, b) => {
@@ -99,6 +99,20 @@ async function getMenuItems(eventId: string) {
   return data || [];
 }
 
+async function getEntreeSides(eventId: string) {
+  const { data: entreeIds } = await supabase
+    .from("menu_items")
+    .select("id")
+    .eq("event_id", eventId)
+    .eq("category", "entree");
+  if (!entreeIds?.length) return [];
+  const { data } = await supabase
+    .from("entree_sides")
+    .select("entree_item_id, side_item_id, max_sides, extra_charge")
+    .in("entree_item_id", entreeIds.map((m) => m.id));
+  return data || [];
+}
+
 export default async function EventPage({
   params,
 }: {
@@ -106,9 +120,10 @@ export default async function EventPage({
 }) {
   const { id } = await params;
 
-  const [event, menuItems] = await Promise.all([
+  const [event, menuItems, entreeSides] = await Promise.all([
     getEventById(id),
     getMenuItems(id),
+    getEntreeSides(id),
   ]);
 
   if (!event) notFound();
@@ -138,6 +153,32 @@ export default async function EventPage({
     {}
   );
   const categories = sortCategories(Object.keys(byCategory));
+
+  const entreeSidesMap = (() => {
+    const map = new Map<
+      string,
+      { maxSides: number; sides: { name: string; extraCharge: number }[] }
+    >();
+    const menuById = new Map(menuItems.map((m) => [m.id, m]));
+    entreeSides.forEach((row) => {
+      const sideItem = menuById.get(row.side_item_id);
+      if (!sideItem) return;
+      const existing = map.get(row.entree_item_id);
+      const side = {
+        name: sideItem.name,
+        extraCharge: Number(row.extra_charge) || 0,
+      };
+      if (existing) {
+        existing.sides.push(side);
+      } else {
+        map.set(row.entree_item_id, {
+          maxSides: Math.min(2, Math.max(0, row.max_sides ?? 0)),
+          sides: [side],
+        });
+      }
+    });
+    return map;
+  })();
 
   return (
     <div className="min-h-screen bg-[#1e3a5f]">
@@ -207,7 +248,9 @@ export default async function EventPage({
                     {category}
                   </h3>
                   <ul className="divide-y divide-gray-100">
-                    {byCategory[category].map((item) => (
+                    {byCategory[category].map((item) => {
+                      const entreeConfig = entreeSidesMap.get(item.id);
+                      return (
                       <li key={item.id} className="px-5 py-4 sm:px-6">
                         <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
                           <div className="min-w-0 flex-1">
@@ -217,6 +260,14 @@ export default async function EventPage({
                             {item.description && (
                               <p className="mt-1 text-sm text-gray-600">
                                 {item.description}
+                              </p>
+                            )}
+                            {entreeConfig && entreeConfig.maxSides > 0 && (
+                              <p className="mt-1.5 text-sm text-gray-600">
+                                {entreeConfig.maxSides} side{entreeConfig.maxSides !== 1 ? "s" : ""} included
+                                {entreeConfig.sides.length > 0 && (
+                                  <>: {entreeConfig.sides.map((s) => s.name).join(", ")}</>
+                                )}
                               </p>
                             )}
                             <div className="mt-2 flex flex-wrap gap-1.5">
@@ -249,7 +300,8 @@ export default async function EventPage({
                           </p>
                         </div>
                       </li>
-                    ))}
+                    );
+                    })}
                   </ul>
                 </div>
               ))}

@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { OrderForm } from "./OrderForm";
 import { Navbar } from "@/app/components/Navbar";
+import type { EntreeSideRow } from "./types";
 
 function formatEventDate(dateStr: string) {
   const d = new Date(dateStr + "T12:00:00");
@@ -38,8 +39,6 @@ async function getEventById(id: string) {
 }
 
 async function getMenuItems(eventId: string) {
-  console.log("[order page] getMenuItems called with eventId:", eventId);
-
   const { data, error } = await supabase
     .from("menu_items")
     .select("id, name, description, price, category, prep_time_minutes, dietary_tags, dine_in_only, pickup_only")
@@ -49,13 +48,22 @@ async function getMenuItems(eventId: string) {
     .order("category")
     .order("name");
 
-  if (error) {
-    console.error("[order page] getMenuItems error:", error.message, error);
-    return [];
-  }
-
-  console.log("[order page] getMenuItems result: count =", data?.length ?? 0, "items:", data?.[0] ? "first item keys: " + Object.keys(data[0]).join(", ") : "no items");
+  if (error) return [];
   return data || [];
+}
+
+async function getEntreeSides(eventId: string): Promise<EntreeSideRow[]> {
+  const { data: entreeIds } = await supabase
+    .from("menu_items")
+    .select("id")
+    .eq("event_id", eventId)
+    .eq("category", "entree");
+  if (!entreeIds?.length) return [];
+  const { data } = await supabase
+    .from("entree_sides")
+    .select("entree_item_id, side_item_id, max_sides, extra_charge")
+    .in("entree_item_id", entreeIds.map((m) => m.id));
+  return (data ?? []) as EntreeSideRow[];
 }
 
 export default async function OrderPage({
@@ -65,9 +73,10 @@ export default async function OrderPage({
 }) {
   const { id } = await params;
 
-  const [event, menuItems] = await Promise.all([
+  const [event, menuItems, entreeSides] = await Promise.all([
     getEventById(id),
     getMenuItems(id),
+    getEntreeSides(id),
   ]);
 
   if (!event) notFound();
@@ -123,6 +132,7 @@ export default async function OrderPage({
             pickup: event.pickup,
           }}
           menuItems={menuItemsWithNumericPrice}
+          entreeSides={entreeSides}
         />
       </main>
     </div>

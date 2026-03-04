@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { placeOrder } from "./actions";
+import type { EntreeSideRow } from "./types";
 
 function formatEventDate(dateStr: string) {
   const d = new Date(dateStr + "T12:00:00");
@@ -46,7 +47,7 @@ type LocationData = {
   name: string;
 };
 
-const CATEGORY_ORDER = ["fish", "sides", "drinks", "desserts"];
+const CATEGORY_ORDER = ["entree", "sides", "drinks", "desserts"];
 
 function sortCategories(categories: string[]) {
   return [...categories].sort((a, b) => {
@@ -83,9 +84,10 @@ type Props = {
   locationName: string;
   event: EventData;
   menuItems: MenuItem[];
+  entreeSides?: EntreeSideRow[];
 };
 
-export function OrderForm({ eventId, locationName, event, menuItems }: Props) {
+export function OrderForm({ eventId, locationName, event, menuItems, entreeSides = [] }: Props) {
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
@@ -94,6 +96,9 @@ export function OrderForm({ eventId, locationName, event, menuItems }: Props) {
   );
   const [notes, setNotes] = useState("");
   const [quantities, setQuantities] = useState<Record<string, number>>({});
+  const [entreeSideSelections, setEntreeSideSelections] = useState<
+    Record<string, string[]>
+  >({});
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [confirmation, setConfirmation] = useState<{
@@ -130,6 +135,33 @@ export function OrderForm({ eventId, locationName, event, menuItems }: Props) {
   const getPrice = (item: MenuItem) =>
     typeof item.price === "string" ? parseFloat(item.price) : item.price;
 
+  const entreeSidesByEntree = (() => {
+    const map = new Map<
+      string,
+      { maxSides: number; sides: { id: string; name: string; extraCharge: number }[] }
+    >();
+    const menuById = new Map(menuItems.map((m) => [m.id, m]));
+    entreeSides.forEach((row) => {
+      const sideItem = menuById.get(row.side_item_id);
+      if (!sideItem) return;
+      const existing = map.get(row.entree_item_id);
+      const side = {
+        id: row.side_item_id,
+        name: sideItem.name,
+        extraCharge: Number(row.extra_charge) || 0,
+      };
+      if (existing) {
+        if (!existing.sides.some((s) => s.id === side.id)) existing.sides.push(side);
+      } else {
+        map.set(row.entree_item_id, {
+          maxSides: Math.min(2, Math.max(0, row.max_sides ?? 0)),
+          sides: [side],
+        });
+      }
+    });
+    return map;
+  })();
+
   let total = 0;
   const lineItems: { item: MenuItem; qty: number; unitPrice: number }[] = [];
   filteredMenuItems.forEach((item) => {
@@ -141,11 +173,32 @@ export function OrderForm({ eventId, locationName, event, menuItems }: Props) {
     }
   });
 
+  entreeSidesByEntree.forEach((config, entreeId) => {
+    const qty = quantities[entreeId] ?? 0;
+    const selected = entreeSideSelections[entreeId] ?? [];
+    selected.forEach((sideId) => {
+      const side = config.sides.find((s) => s.id === sideId);
+      if (side && side.extraCharge > 0) {
+        total += side.extraCharge * qty;
+      }
+    });
+  });
+
   const prepTimes = lineItems
     .map(({ item }) => item.prep_time_minutes)
     .filter((m): m is number => typeof m === "number" && m > 0);
   const estimatedWaitMinutes =
     prepTimes.length > 0 ? Math.max(...prepTimes) : undefined;
+
+  const canSubmit = (() => {
+    for (const [entreeId, config] of entreeSidesByEntree) {
+      const qty = quantities[entreeId] ?? 0;
+      if (qty === 0 || config.maxSides === 0) continue;
+      const selected = entreeSideSelections[entreeId] ?? [];
+      if (selected.length < config.maxSides) return false;
+    }
+    return true;
+  })();
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -158,15 +211,40 @@ export function OrderForm({ eventId, locationName, event, menuItems }: Props) {
       setSubmitError("Please enter your email.");
       return;
     }
+    if (!canSubmit) {
+      setSubmitError("Please select the required sides for your entrees.");
+      return;
+    }
     setSubmitting(true);
-    const items = filteredMenuItems
-      .filter((m) => (quantities[m.id] ?? 0) > 0)
-      .map((m) => ({
-        menu_item_id: m.id,
-        quantity: quantities[m.id] ?? 0,
-        item_name: m.name,
-        item_price: getPrice(m),
-      }));
+    const items: { menu_item_id: string; quantity: number; item_name: string; item_price: number }[] = [];
+    filteredMenuItems.forEach((m) => {
+      const qty = quantities[m.id] ?? 0;
+      if (qty > 0) {
+        items.push({
+          menu_item_id: m.id,
+          quantity: qty,
+          item_name: m.name,
+          item_price: getPrice(m),
+        });
+      }
+    });
+    entreeSidesByEntree.forEach((config, entreeId) => {
+      const qty = quantities[entreeId] ?? 0;
+      if (qty === 0) return;
+      const selected = entreeSideSelections[entreeId] ?? [];
+      selected.forEach((sideId) => {
+        const side = config.sides.find((s) => s.id === sideId);
+        if (side) {
+          const sideItem = menuItems.find((m) => m.id === sideId);
+          items.push({
+            menu_item_id: sideId,
+            quantity: qty,
+            item_name: side.name,
+            item_price: side.extraCharge,
+          });
+        }
+      });
+    });
 
     const result = await placeOrder(
       eventId,
@@ -183,16 +261,32 @@ export function OrderForm({ eventId, locationName, event, menuItems }: Props) {
 
     setSubmitting(false);
     if (result.success && result.order) {
+      const allLineItems = [...lineItems.map(({ item, qty, unitPrice }) => ({
+        name: item.name,
+        qty,
+        unitPrice,
+      }))];
+      entreeSidesByEntree.forEach((config, entreeId) => {
+        const qty = quantities[entreeId] ?? 0;
+        if (qty === 0) return;
+        const selected = entreeSideSelections[entreeId] ?? [];
+        selected.forEach((sideId) => {
+          const side = config.sides.find((s) => s.id === sideId);
+          if (side) {
+            allLineItems.push({
+              name: side.name,
+              qty,
+              unitPrice: side.extraCharge,
+            });
+          }
+        });
+      });
       setConfirmation({
         orderId: result.order.id,
         total,
         customer_name: result.order.customer_name,
         order_type: orderType,
-        lineItems: lineItems.map(({ item, qty, unitPrice }) => ({
-          name: item.name,
-          qty,
-          unitPrice,
-        })),
+        lineItems: allLineItems,
         estimatedWaitMinutes,
       });
     } else {
@@ -366,6 +460,15 @@ export function OrderForm({ eventId, locationName, event, menuItems }: Props) {
                 {byCategory[category].map((item) => {
                   const qty = quantities[item.id] ?? 0;
                   const unitPrice = getPrice(item);
+                  const entreeConfig = entreeSidesByEntree.get(item.id);
+                  const selectedSides = entreeSideSelections[item.id] ?? [];
+                  const needsSides =
+                    qty > 0 &&
+                    entreeConfig &&
+                    entreeConfig.maxSides > 0;
+                  const sideCountOk =
+                    !needsSides || selectedSides.length === entreeConfig!.maxSides;
+
                   return (
                     <li
                       key={item.id}
@@ -394,6 +497,69 @@ export function OrderForm({ eventId, locationName, event, menuItems }: Props) {
                         <p className="text-sm font-semibold text-[#1e3a5f]">
                           {formatPrice(unitPrice)}
                         </p>
+                        {needsSides && (
+                          <div className="mt-3 rounded-lg border border-[#2d5a87]/30 bg-gray-50/50 p-3">
+                            <p className="text-xs font-medium text-[#1e3a5f]">
+                              Choose up to {entreeConfig!.maxSides} included side
+                              {entreeConfig!.maxSides !== 1 ? "s" : ""}
+                            </p>
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              {entreeConfig!.sides.map((side) => {
+                                const isSelected = selectedSides.includes(side.id);
+                                const atLimit =
+                                  selectedSides.length >= entreeConfig!.maxSides &&
+                                  !isSelected;
+                                return (
+                                  <label
+                                    key={side.id}
+                                    className={`inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm ${
+                                      atLimit
+                                        ? "cursor-not-allowed border-gray-200 bg-gray-100 text-gray-400"
+                                        : "cursor-pointer border-gray-200 bg-white text-gray-700 hover:bg-gray-50"
+                                    }`}
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      checked={isSelected}
+                                      disabled={atLimit}
+                                      onChange={(e) => {
+                                        if (e.target.checked) {
+                                          setEntreeSideSelections((prev) => ({
+                                            ...prev,
+                                            [item.id]: [
+                                              ...(prev[item.id] ?? []),
+                                              side.id,
+                                            ].slice(0, entreeConfig!.maxSides),
+                                          }));
+                                        } else {
+                                          setEntreeSideSelections((prev) => ({
+                                            ...prev,
+                                            [item.id]: (prev[item.id] ?? []).filter(
+                                              (id) => id !== side.id
+                                            ),
+                                          }));
+                                        }
+                                      }}
+                                      className="rounded border-gray-300 text-[#1e3a5f] focus:ring-[#1e3a5f] disabled:opacity-50"
+                                    />
+                                    <span>{side.name}</span>
+                                    {side.extraCharge > 0 && (
+                                      <span className="font-semibold text-[#b8941f]">
+                                        +{formatPrice(side.extraCharge)}
+                                      </span>
+                                    )}
+                                  </label>
+                                );
+                              })}
+                            </div>
+                            {!sideCountOk && (
+                              <p className="mt-1 text-xs text-amber-700">
+                                Select {entreeConfig!.maxSides} side
+                                {entreeConfig!.maxSides !== 1 ? "s" : ""}
+                              </p>
+                            )}
+                          </div>
+                        )}
                       </div>
                       <div className="flex items-center gap-2 sm:shrink-0">
                         <button
@@ -464,7 +630,7 @@ export function OrderForm({ eventId, locationName, event, menuItems }: Props) {
         )}
         <button
           type="submit"
-          disabled={submitting}
+          disabled={submitting || !canSubmit}
           className="mt-4 w-full rounded-xl bg-[#c9a227] px-6 py-4 text-lg font-bold uppercase tracking-wide text-[#1e3a5f] shadow-md transition hover:bg-[#d4af37] hover:shadow-lg disabled:opacity-70 disabled:cursor-not-allowed active:bg-[#b8941f]"
         >
           {submitting ? "Placing order…" : "Place Order"}

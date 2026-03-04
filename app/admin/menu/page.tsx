@@ -55,7 +55,7 @@ function getLocationName(ev: EventRow): string {
   return (loc as { name?: string })?.name ?? "—";
 }
 
-const CATEGORIES = ["fish", "sides", "drinks", "desserts", "other"];
+const CATEGORIES = ["entree", "sides", "drinks", "desserts", "other"];
 const DIETARY_TAG_OPTIONS = [
   "Gluten Free",
   "Dairy Free",
@@ -86,6 +86,9 @@ export default function AdminMenuPage() {
   const [copyingMenu, setCopyingMenu] = useState(false);
   const [copyMenuMessage, setCopyMenuMessage] = useState<string | null>(null);
   const [copyMenuError, setCopyMenuError] = useState<string | null>(null);
+  const [existingEntreeSides, setExistingEntreeSides] = useState<
+    { side_item_id: string; extra_charge: number; max_sides: number }[]
+  >([]);
 
   const formEventId = editingItem ? editingItem.event_id : addForEventId;
   const isEdit = !!editingItem;
@@ -164,6 +167,7 @@ export default function AdminMenuPage() {
   function openAdd(eventId: string) {
     setEditingItem(null);
     setAddForEventId(eventId);
+    setExistingEntreeSides([]);
     setModalOpen(true);
   }
 
@@ -171,12 +175,30 @@ export default function AdminMenuPage() {
     setEditingItem(item);
     setAddForEventId(null);
     setModalOpen(true);
+    if (item.category === "entree") {
+      supabase
+        .from("entree_sides")
+        .select("side_item_id, extra_charge, max_sides")
+        .eq("entree_item_id", item.id)
+        .then(({ data }) => {
+          setExistingEntreeSides(
+            (data ?? []).map((r) => ({
+              side_item_id: r.side_item_id,
+              extra_charge: Number(r.extra_charge) || 0,
+              max_sides: r.max_sides ?? 0,
+            }))
+          );
+        });
+    } else {
+      setExistingEntreeSides([]);
+    }
   }
 
   function closeModal() {
     setModalOpen(false);
     setEditingItem(null);
     setAddForEventId(null);
+    setExistingEntreeSides([]);
   }
 
   function openCopyMenu(sourceEventId: string) {
@@ -236,6 +258,27 @@ export default function AdminMenuPage() {
     }
 
     const insertedItems = (data as MenuItemRow[]) ?? [];
+    const idMap = new Map<string, string>();
+    sourceEvent.menu_items.forEach((src, i) => {
+      if (insertedItems[i]) idMap.set(src.id, insertedItems[i].id);
+    });
+    const { data: entreeSidesRows } = await supabase
+      .from("entree_sides")
+      .select("entree_item_id, side_item_id, max_sides, extra_charge")
+      .in("entree_item_id", sourceEvent.menu_items.map((m) => m.id));
+    if (entreeSidesRows && entreeSidesRows.length > 0) {
+      const newSides = entreeSidesRows
+        .filter((r) => idMap.has(r.entree_item_id) && idMap.has(r.side_item_id))
+        .map((r) => ({
+          entree_item_id: idMap.get(r.entree_item_id)!,
+          side_item_id: idMap.get(r.side_item_id)!,
+          max_sides: r.max_sides,
+          extra_charge: r.extra_charge,
+        }));
+      if (newSides.length > 0) {
+        await supabase.from("entree_sides").insert(newSides);
+      }
+    }
     setEvents((prev) =>
       prev.map((e) =>
         e.id === copyTargetEventId
@@ -485,6 +528,12 @@ export default function AdminMenuPage() {
         <ItemFormModal
           eventId={formEventId}
           initialItem={editingItem}
+          otherMenuItems={
+            events.find((e) => e.id === formEventId)?.menu_items.filter(
+              (m) => m.id !== editingItem?.id
+            ) ?? []
+          }
+          existingEntreeSides={existingEntreeSides}
           saving={saving}
           onSave={async (payload) => {
             setSaving(true);
@@ -503,6 +552,22 @@ export default function AdminMenuPage() {
                 })
                 .eq("id", editingItem.id);
               if (!error) {
+                if (payload.category === "entree" && payload.entreeSides) {
+                  await supabase
+                    .from("entree_sides")
+                    .delete()
+                    .eq("entree_item_id", editingItem.id);
+                  if (payload.entreeSides.sides.length > 0) {
+                    await supabase.from("entree_sides").insert(
+                      payload.entreeSides.sides.map((s) => ({
+                        entree_item_id: editingItem.id,
+                        side_item_id: s.side_item_id,
+                        max_sides: payload.entreeSides!.maxSides,
+                        extra_charge: s.extra_charge,
+                      }))
+                    );
+                  }
+                }
                 setEvents((prev) =>
                   prev.map((e) => ({
                     ...e,
@@ -533,12 +598,25 @@ export default function AdminMenuPage() {
                 .select("id, event_id, name, description, price, category, available, prep_time_minutes, dietary_tags, dine_in_only, pickup_only")
                 .single();
               if (!error && newItem) {
+                const newItemRow = newItem as MenuItemRow;
+                if (payload.category === "entree" && payload.entreeSides) {
+                  if (payload.entreeSides.sides.length > 0) {
+                    await supabase.from("entree_sides").insert(
+                      payload.entreeSides.sides.map((s) => ({
+                        entree_item_id: newItemRow.id,
+                        side_item_id: s.side_item_id,
+                        max_sides: payload.entreeSides!.maxSides,
+                        extra_charge: s.extra_charge,
+                      }))
+                    );
+                  }
+                }
                 setEvents((prev) =>
                   prev.map((e) =>
                     e.id === formEventId
                       ? {
                           ...e,
-                          menu_items: [newItem as MenuItemRow, ...e.menu_items],
+                          menu_items: [newItemRow, ...e.menu_items],
                         }
                       : e
                   )
@@ -624,12 +702,16 @@ type FormPayload = {
 function ItemFormModal({
   eventId,
   initialItem,
+  otherMenuItems,
+  existingEntreeSides,
   saving,
   onSave,
   onClose,
 }: {
   eventId: string;
   initialItem: MenuItemRow | null;
+  otherMenuItems: MenuItemRow[];
+  existingEntreeSides: { side_item_id: string; extra_charge: number; max_sides: number }[];
   saving: boolean;
   onSave: (payload: {
     name: string;
@@ -640,6 +722,7 @@ function ItemFormModal({
     dietary_tags: string[];
     dine_in_only: boolean;
     pickup_only: boolean;
+    entreeSides?: { maxSides: number; sides: { side_item_id: string; extra_charge: number }[] };
   }) => Promise<void>;
   onClose: () => void;
 }) {
@@ -650,7 +733,7 @@ function ItemFormModal({
   const [price, setPrice] = useState(
     initialItem != null ? String(initialItem.price) : ""
   );
-  const [category, setCategory] = useState(initialItem?.category ?? "fish");
+  const [category, setCategory] = useState(initialItem?.category ?? "entree");
   const [prepTime, setPrepTime] = useState(
     initialItem?.prep_time_minutes != null
       ? String(initialItem.prep_time_minutes)
@@ -665,6 +748,23 @@ function ItemFormModal({
   const [pickupOnly, setPickupOnly] = useState(
     initialItem?.pickup_only ?? false
   );
+  const [maxSides, setMaxSides] = useState<0 | 1 | 2>(0);
+  const [selectedSides, setSelectedSides] = useState<Record<string, number>>({});
+
+  useEffect(() => {
+    if (existingEntreeSides.length > 0) {
+      const first = existingEntreeSides[0];
+      setMaxSides((Math.min(2, Math.max(0, first.max_sides)) ?? 0) as 0 | 1 | 2);
+      const rec: Record<string, number> = {};
+      existingEntreeSides.forEach((s) => {
+        rec[s.side_item_id] = s.extra_charge;
+      });
+      setSelectedSides(rec);
+    } else {
+      setMaxSides(0);
+      setSelectedSides({});
+    }
+  }, [existingEntreeSides]);
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -672,7 +772,7 @@ function ItemFormModal({
     if (Number.isNaN(numPrice) || numPrice < 0) return;
     const numPrep = prepTime.trim() ? parseInt(prepTime, 10) : null;
     if (prepTime.trim() && (Number.isNaN(numPrep!) || numPrep! < 0)) return;
-    onSave({
+    const payload: Parameters<typeof onSave>[0] = {
       name: name.trim(),
       description: description.trim() || "",
       price: numPrice,
@@ -681,7 +781,17 @@ function ItemFormModal({
       dietary_tags: dietaryTags,
       dine_in_only: dineInOnly,
       pickup_only: pickupOnly,
-    });
+    };
+    if (category === "entree") {
+      payload.entreeSides = {
+        maxSides: maxSides,
+        sides: Object.entries(selectedSides).map(([side_item_id, extra_charge]) => ({
+          side_item_id,
+          extra_charge,
+        })),
+      };
+    }
+    onSave(payload);
   }
 
   return (
@@ -800,6 +910,86 @@ function ItemFormModal({
               </label>
             </div>
           </div>
+          {category === "entree" && (
+            <div>
+              <p className="block text-sm font-medium text-gray-700">
+                Available Sides
+              </p>
+              <p className="mt-0.5 text-xs text-gray-500">
+                Select which sides customers can choose with this entree. Set extra charge for paid upgrades (default $0 = included).
+              </p>
+              <div className="mt-2">
+                <label className="block text-xs font-medium text-gray-600 mb-1">
+                  Number of included sides
+                </label>
+                <select
+                  value={maxSides}
+                  onChange={(e) => setMaxSides(Number(e.target.value) as 0 | 1 | 2)}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-gray-900"
+                >
+                  <option value={0}>0</option>
+                  <option value={1}>1</option>
+                  <option value={2}>2</option>
+                </select>
+              </div>
+              <div className="mt-3 space-y-2 max-h-48 overflow-y-auto">
+                {otherMenuItems.map((item) => {
+                  const checked = item.id in selectedSides;
+                  const extraCharge = selectedSides[item.id] ?? 0;
+                  return (
+                    <div
+                      key={item.id}
+                      className="flex flex-wrap items-center gap-2 rounded-lg border border-gray-200 p-2"
+                    >
+                      <label className="inline-flex items-center gap-2 flex-1 min-w-0">
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedSides((prev) => ({ ...prev, [item.id]: 0 }));
+                            } else {
+                              setSelectedSides((prev) => {
+                                const next = { ...prev };
+                                delete next[item.id];
+                                return next;
+                              });
+                            }
+                          }}
+                          className="rounded border-gray-300 text-[#1e3a5f] focus:ring-[#1e3a5f]"
+                        />
+                        <span className="text-sm text-gray-700 truncate">{item.name}</span>
+                      </label>
+                      {checked && (
+                        <div className="flex items-center gap-1">
+                          <span className="text-xs text-gray-500">+$</span>
+                          <input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            value={extraCharge}
+                            onChange={(e) => {
+                              const v = e.target.value;
+                              const n = v === "" ? 0 : parseFloat(v);
+                              setSelectedSides((prev) => ({
+                                ...prev,
+                                [item.id]: Number.isNaN(n) || n < 0 ? 0 : n,
+                              }));
+                            }}
+                            placeholder="0"
+                            className="w-16 rounded border border-gray-300 px-2 py-1 text-sm text-gray-900"
+                          />
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+                {otherMenuItems.length === 0 && (
+                  <p className="text-sm text-gray-500">No other menu items. Add sides, drinks, etc. first.</p>
+                )}
+              </div>
+            </div>
+          )}
           <div>
             <p className="block text-sm font-medium text-gray-700">Dietary tags</p>
             <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
