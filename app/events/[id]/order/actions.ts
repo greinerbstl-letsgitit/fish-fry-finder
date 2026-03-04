@@ -1,6 +1,6 @@
 "use server";
 
-import { supabase } from "@/lib/supabase";
+import { supabaseAnon } from "@/lib/supabase";
 import { sendOrderConfirmation } from "@/lib/email";
 
 type OrderData = {
@@ -24,7 +24,7 @@ export async function placeOrder(
   orderData: OrderData,
   items: OrderItemInput[]
 ) {
-  const { data: order, error: orderError } = await supabase
+  const { data: order, error: orderError } = await supabaseAnon
     .from("orders")
     .insert({
       event_id: eventId,
@@ -54,7 +54,7 @@ export async function placeOrder(
     }));
 
   if (orderItems.length > 0) {
-    const { error: itemsError } = await supabase
+    const { error: itemsError } = await supabaseAnon
       .from("order_items")
       .insert(orderItems);
 
@@ -66,7 +66,7 @@ export async function placeOrder(
 
   const customerEmail = orderData.customer_email.trim();
   if (customerEmail) {
-    const { data: eventRow } = await supabase
+    const { data: eventRow } = await supabaseAnon
       .from("events")
       .select("event_date, locations (name)")
       .eq("id", eventId)
