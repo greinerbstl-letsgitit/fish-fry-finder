@@ -41,7 +41,7 @@ async function getEventById(id: string) {
 async function getMenuItems(eventId: string) {
   const { data, error } = await supabase
     .from("menu_items")
-    .select("id, name, description, price, category, prep_time_minutes, dietary_tags, dine_in_only, pickup_only")
+    .select("id, name, description, price, category, prep_time_minutes, dietary_tags, dine_in_only, pickup_only, purchasable_individually")
     .eq("event_id", eventId)
     .eq("available", true)
     .or("blocked.eq.false,blocked.is.null")

@@ -22,6 +22,7 @@ type MenuItemRow = {
   dietary_tags: string[] | null;
   dine_in_only?: boolean;
   pickup_only?: boolean;
+  purchasable_individually?: boolean;
 };
 
 type EventRow = {
@@ -146,7 +147,8 @@ export default function AdminMenuPage() {
           prep_time_minutes,
           dietary_tags,
           dine_in_only,
-          pickup_only
+          pickup_only,
+          purchasable_individually
         )
       `
       )
@@ -232,6 +234,37 @@ export default function AdminMenuPage() {
     setCopyMenuError(null);
     setCopyMenuMessage(null);
 
+    const sourceItemIds = sourceEvent.menu_items.map((m) => m.id);
+    console.log("[Copy Menu] Source item IDs:", sourceItemIds);
+
+    const destEvent = events.find((e) => e.id === copyTargetEventId);
+    const destMenuItemIds = destEvent?.menu_items?.map((m) => m.id) ?? [];
+    if (destMenuItemIds.length > 0) {
+      const { error: sidesDelEntreeError } = await supabase
+        .from("entree_sides")
+        .delete()
+        .in("entree_item_id", destMenuItemIds);
+      if (sidesDelEntreeError) {
+        console.error("[Copy Menu] Error deleting dest entree_sides (by entree):", sidesDelEntreeError);
+      }
+      const { error: sidesDelSideError } = await supabase
+        .from("entree_sides")
+        .delete()
+        .in("side_item_id", destMenuItemIds);
+      if (sidesDelSideError) {
+        console.error("[Copy Menu] Error deleting dest entree_sides (by side):", sidesDelSideError);
+      }
+      const { error: itemsDelError } = await supabase
+        .from("menu_items")
+        .delete()
+        .eq("event_id", copyTargetEventId);
+      if (itemsDelError) {
+        setCopyingMenu(false);
+        setCopyMenuError(itemsDelError.message || "Could not clear destination menu.");
+        return;
+      }
+    }
+
     const payload = sourceEvent.menu_items.map((item) => ({
       event_id: copyTargetEventId,
       name: item.name,
@@ -243,29 +276,36 @@ export default function AdminMenuPage() {
       dietary_tags: item.dietary_tags,
       dine_in_only: item.dine_in_only ?? false,
       pickup_only: item.pickup_only ?? false,
+      purchasable_individually: item.category === "entree" ? true : (item.purchasable_individually ?? false),
     }));
 
     const { data, error } = await supabase
       .from("menu_items")
       .insert(payload)
-      .select("id, event_id, name, description, price, category, available, prep_time_minutes, dietary_tags, dine_in_only, pickup_only");
-
-    setCopyingMenu(false);
+      .select("id, event_id, name, description, price, category, available, prep_time_minutes, dietary_tags, dine_in_only, pickup_only, purchasable_individually");
 
     if (error) {
+      setCopyingMenu(false);
       setCopyMenuError(error.message || "Could not copy menu items.");
       return;
     }
 
     const insertedItems = (data as MenuItemRow[]) ?? [];
+    const newItemIds = insertedItems.map((m) => m.id);
+    console.log("[Copy Menu] New inserted item IDs:", newItemIds);
+
     const idMap = new Map<string, string>();
     sourceEvent.menu_items.forEach((src, i) => {
       if (insertedItems[i]) idMap.set(src.id, insertedItems[i].id);
     });
+    console.log("[Copy Menu] idMap (oldId -> newId):", Object.fromEntries(idMap));
+
     const { data: entreeSidesRows } = await supabase
       .from("entree_sides")
       .select("entree_item_id, side_item_id, max_sides, extra_charge")
-      .in("entree_item_id", sourceEvent.menu_items.map((m) => m.id));
+      .in("entree_item_id", sourceItemIds);
+    console.log("[Copy Menu] Fetched entree_sides rows:", entreeSidesRows);
+
     if (entreeSidesRows && entreeSidesRows.length > 0) {
       const newSides = entreeSidesRows
         .filter((r) => idMap.has(r.entree_item_id) && idMap.has(r.side_item_id))
@@ -275,14 +315,20 @@ export default function AdminMenuPage() {
           max_sides: r.max_sides,
           extra_charge: r.extra_charge,
         }));
+      console.log("[Copy Menu] Rows to insert into entree_sides:", newSides);
       if (newSides.length > 0) {
-        await supabase.from("entree_sides").insert(newSides);
+        const { error: sidesError } = await supabase.from("entree_sides").insert(newSides);
+        if (sidesError) {
+          console.error("[Copy Menu] Error inserting entree_sides:", sidesError);
+        }
       }
     }
+
+    setCopyingMenu(false);
     setEvents((prev) =>
       prev.map((e) =>
         e.id === copyTargetEventId
-          ? { ...e, menu_items: [...insertedItems, ...e.menu_items] }
+          ? { ...e, menu_items: insertedItems }
           : e
       )
     );
@@ -549,6 +595,7 @@ export default function AdminMenuPage() {
                   dietary_tags: payload.dietary_tags,
                   dine_in_only: payload.dine_in_only,
                   pickup_only: payload.pickup_only,
+                  purchasable_individually: payload.purchasable_individually,
                 })
                 .eq("id", editingItem.id);
               if (!error) {
@@ -593,9 +640,10 @@ export default function AdminMenuPage() {
                   dietary_tags: payload.dietary_tags,
                   dine_in_only: payload.dine_in_only,
                   pickup_only: payload.pickup_only,
+                  purchasable_individually: payload.purchasable_individually,
                   available: true,
                 })
-                .select("id, event_id, name, description, price, category, available, prep_time_minutes, dietary_tags, dine_in_only, pickup_only")
+                .select("id, event_id, name, description, price, category, available, prep_time_minutes, dietary_tags, dine_in_only, pickup_only, purchasable_individually")
                 .single();
               if (!error && newItem) {
                 const newItemRow = newItem as MenuItemRow;
@@ -722,6 +770,7 @@ function ItemFormModal({
     dietary_tags: string[];
     dine_in_only: boolean;
     pickup_only: boolean;
+    purchasable_individually: boolean;
     entreeSides?: { maxSides: number; sides: { side_item_id: string; extra_charge: number }[] };
   }) => Promise<void>;
   onClose: () => void;
@@ -748,8 +797,21 @@ function ItemFormModal({
   const [pickupOnly, setPickupOnly] = useState(
     initialItem?.pickup_only ?? false
   );
+  const [purchasableIndividually, setPurchasableIndividually] = useState(
+    initialItem?.category === "entree" ? true : (initialItem?.purchasable_individually ?? false)
+  );
   const [maxSides, setMaxSides] = useState<0 | 1 | 2>(0);
   const [selectedSides, setSelectedSides] = useState<Record<string, number>>({});
+
+  useEffect(() => {
+    if (initialItem) {
+      setPurchasableIndividually(
+        initialItem.category === "entree" ? true : (initialItem.purchasable_individually ?? false)
+      );
+    } else {
+      setPurchasableIndividually(category === "entree");
+    }
+  }, [initialItem, category]);
 
   useEffect(() => {
     if (existingEntreeSides.length > 0) {
@@ -781,6 +843,7 @@ function ItemFormModal({
       dietary_tags: dietaryTags,
       dine_in_only: dineInOnly,
       pickup_only: pickupOnly,
+      purchasable_individually: category === "entree" ? true : purchasableIndividually,
     };
     if (category === "entree") {
       payload.entreeSides = {
@@ -909,6 +972,32 @@ function ItemFormModal({
                 <span className="text-sm text-gray-700">Pickup only</span>
               </label>
             </div>
+          </div>
+          <div>
+            <p className="block text-sm font-medium text-gray-700">
+              May be purchased individually
+            </p>
+            <p className="mt-0.5 text-xs text-gray-500">
+              {category === "entree"
+                ? "Entrees are always purchasable individually."
+                : "Allow customers to add this item to their order without an entree (e.g. sides, drinks, desserts)."}
+            </p>
+            <label className="mt-2 inline-flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={category === "entree" ? true : purchasableIndividually}
+                disabled={category === "entree"}
+                onChange={(e) => {
+                  if (category !== "entree") {
+                    setPurchasableIndividually(e.target.checked);
+                  }
+                }}
+                className="rounded border-gray-300 text-[#1e3a5f] focus:ring-[#1e3a5f] disabled:opacity-60"
+              />
+              <span className="text-sm text-gray-700">
+                {category === "entree" ? "Yes (entrees always)" : "Yes"}
+              </span>
+            </label>
           </div>
           {category === "entree" && (
             <div>

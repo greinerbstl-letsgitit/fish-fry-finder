@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { placeOrder } from "./actions";
 import type { EntreeSideRow } from "./types";
 
@@ -33,6 +33,7 @@ type MenuItem = {
   dietary_tags?: string[] | null;
   dine_in_only?: boolean;
   pickup_only?: boolean;
+  purchasable_individually?: boolean;
 };
 
 type EventData = {
@@ -43,8 +44,12 @@ type EventData = {
   pickup: boolean;
 };
 
-type LocationData = {
-  name: string;
+type CartItem = {
+  id: string;
+  menu_item_id: string;
+  item_name: string;
+  item_price: number;
+  selected_side_ids?: string[];
 };
 
 const CATEGORY_ORDER = ["entree", "sides", "drinks", "desserts"];
@@ -79,6 +84,10 @@ function getDietaryTagClasses(tag: string) {
   }
 }
 
+function generateId() {
+  return crypto.randomUUID?.() ?? `cart-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
 type Props = {
   eventId: string;
   locationName: string;
@@ -95,27 +104,34 @@ export function OrderForm({ eventId, locationName, event, menuItems, entreeSides
     event.dine_in ? "dine_in" : "pickup"
   );
   const [notes, setNotes] = useState("");
-  const [quantities, setQuantities] = useState<Record<string, number>>({});
-  const [entreeSideSelections, setEntreeSideSelections] = useState<
-    Record<string, string[]>
-  >({});
+  const [cart, setCart] = useState<CartItem[]>([]);
+  const [entreeSideModal, setEntreeSideModal] = useState<{
+    entreeItem: MenuItem;
+    pendingCartId: string | null;
+    editingCartId: string | null;
+    selectedSideCounts: Record<string, number>;
+  } | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
   const [confirmation, setConfirmation] = useState<{
     orderId: string;
     total: number;
     customer_name: string;
     order_type: string;
-    lineItems: { name: string; qty: number; unitPrice: number }[];
+    lineItems: { name: string; qty: number; unitPrice: number; sideNames?: string[] }[];
     estimatedWaitMinutes?: number;
   } | null>(null);
 
-  const setQuantity = (itemId: string, delta: number) => {
-    setQuantities((prev) => {
-      const next = (prev[itemId] ?? 0) + delta;
-      return { ...prev, [itemId]: Math.max(0, next) };
-    });
-  };
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 2000);
+    return () => clearTimeout(t);
+  }, [toast]);
+
+  function showToast(message: string) {
+    setToast(message);
+  }
 
   const filteredMenuItems = menuItems.filter((item) => {
     const dineIn = item.dine_in_only ?? false;
@@ -124,16 +140,7 @@ export function OrderForm({ eventId, locationName, event, menuItems, entreeSides
     return !dineIn;
   });
 
-  const byCategory = filteredMenuItems.reduce<Record<string, MenuItem[]>>((acc, item) => {
-    const cat = item.category || "Other";
-    if (!acc[cat]) acc[cat] = [];
-    acc[cat].push(item);
-    return acc;
-  }, {});
-  const categories = sortCategories(Object.keys(byCategory));
-
-  const getPrice = (item: MenuItem) =>
-    typeof item.price === "string" ? parseFloat(item.price) : item.price;
+  const sideItemIds = new Set(entreeSides.map((r) => r.side_item_id));
 
   const entreeSidesByEntree = (() => {
     const map = new Map<
@@ -162,43 +169,136 @@ export function OrderForm({ eventId, locationName, event, menuItems, entreeSides
     return map;
   })();
 
-  let total = 0;
-  const lineItems: { item: MenuItem; qty: number; unitPrice: number }[] = [];
-  filteredMenuItems.forEach((item) => {
-    const qty = quantities[item.id] ?? 0;
-    if (qty > 0) {
-      const unitPrice = getPrice(item);
-      total += unitPrice * qty;
-      lineItems.push({ item, qty, unitPrice });
-    }
-  });
+  const getPrice = (item: MenuItem) =>
+    typeof item.price === "string" ? parseFloat(item.price) : item.price;
 
-  entreeSidesByEntree.forEach((config, entreeId) => {
-    const qty = quantities[entreeId] ?? 0;
-    const selected = entreeSideSelections[entreeId] ?? [];
-    selected.forEach((sideId) => {
-      const side = config.sides.find((s) => s.id === sideId);
-      if (side && side.extraCharge > 0) {
-        total += side.extraCharge * qty;
-      }
-    });
-  });
-
-  const prepTimes = lineItems
-    .map(({ item }) => item.prep_time_minutes)
-    .filter((m): m is number => typeof m === "number" && m > 0);
-  const estimatedWaitMinutes =
-    prepTimes.length > 0 ? Math.max(...prepTimes) : undefined;
-
-  const canSubmit = (() => {
-    for (const [entreeId, config] of entreeSidesByEntree) {
-      const qty = quantities[entreeId] ?? 0;
-      if (qty === 0 || config.maxSides === 0) continue;
-      const selected = entreeSideSelections[entreeId] ?? [];
-      if (selected.length < config.maxSides) return false;
-    }
+  const isSideItem = (item: MenuItem) => sideItemIds.has(item.id);
+  const canAddDirectly = (item: MenuItem) => {
+    if (item.category === "entree") return true;
+    if (isSideItem(item)) return item.purchasable_individually ?? false;
     return true;
-  })();
+  };
+
+  const byCategory = filteredMenuItems.reduce<Record<string, MenuItem[]>>((acc, item) => {
+    const cat = item.category || "Other";
+    if (!acc[cat]) acc[cat] = [];
+    acc[cat].push(item);
+    return acc;
+  }, {});
+  const categories = sortCategories(Object.keys(byCategory));
+
+  const cartTotal = cart.reduce((sum, ci) => {
+    let itemTotal = ci.item_price;
+    if (ci.selected_side_ids && ci.selected_side_ids.length > 0) {
+      const config = entreeSidesByEntree.get(ci.menu_item_id);
+      if (config) {
+        ci.selected_side_ids.forEach((sid) => {
+          const side = config.sides.find((s) => s.id === sid);
+          if (side) itemTotal += side.extraCharge;
+        });
+      }
+    }
+    return sum + itemTotal;
+  }, 0);
+
+  const prepTimes = cart.flatMap((ci) => {
+    const m = menuItems.find((x) => x.id === ci.menu_item_id);
+    return m?.prep_time_minutes ?? 0;
+  }).filter((m): m is number => typeof m === "number" && m > 0);
+  const estimatedWaitMinutes = prepTimes.length > 0 ? Math.max(...prepTimes) : undefined;
+
+  function handleAddItem(item: MenuItem) {
+    const config = entreeSidesByEntree.get(item.id);
+    if (config && config.maxSides > 0) {
+      setEntreeSideModal({
+        entreeItem: item,
+        pendingCartId: generateId(),
+        editingCartId: null,
+        selectedSideCounts: {},
+      });
+    } else {
+      setCart((prev) => [
+        ...prev,
+        {
+          id: generateId(),
+          menu_item_id: item.id,
+          item_name: item.name,
+          item_price: getPrice(item),
+        },
+      ]);
+      showToast(`Added to order: ${item.name}`);
+    }
+  }
+
+  function getEntreeModalSides(entreeId: string) {
+    const filteredRows = entreeSides.filter((r) => r.entree_item_id === entreeId);
+    const menuById = new Map(menuItems.map((m) => [m.id, m]));
+    const sides = filteredRows
+      .map((row) => {
+        const sideMenuItem = menuById.get(row.side_item_id);
+        return sideMenuItem
+          ? { id: row.side_item_id, name: sideMenuItem.name, extraCharge: Number(row.extra_charge) || 0 }
+          : null;
+      })
+      .filter((s): s is { id: string; name: string; extraCharge: number } => s != null);
+    console.log("[getEntreeModalSides] Final resolved sides array:", sides);
+    const maxSides = filteredRows[0] ? Math.min(2, Math.max(0, filteredRows[0].max_sides ?? 0)) : 0;
+    return { sides, maxSides };
+  }
+
+  function handleConfirmEntreeSides() {
+    if (!entreeSideModal) return;
+    const { entreeItem, pendingCartId, editingCartId, selectedSideCounts } = entreeSideModal;
+    const { maxSides } = getEntreeModalSides(entreeItem.id);
+    const totalSelected = Object.values(selectedSideCounts).reduce((sum, n) => sum + n, 0);
+    if (totalSelected !== maxSides) return;
+
+    const selectedSideIds = Object.entries(selectedSideCounts).flatMap(([id, count]) =>
+      Array(count).fill(id)
+    );
+
+    if (editingCartId) {
+      setCart((prev) =>
+        prev.map((c) =>
+          c.id === editingCartId
+            ? { ...c, selected_side_ids: selectedSideIds }
+            : c
+        )
+      );
+    } else {
+      setCart((prev) => [
+        ...prev,
+        {
+          id: pendingCartId!,
+          menu_item_id: entreeItem.id,
+          item_name: entreeItem.name,
+          item_price: getPrice(entreeItem),
+          selected_side_ids: selectedSideIds,
+        },
+      ]);
+      showToast(`Added to order: ${entreeItem.name}`);
+    }
+    setEntreeSideModal(null);
+  }
+
+  function handleEditSides(cartItem: CartItem) {
+    const entreeItem = menuItems.find((m) => m.id === cartItem.menu_item_id);
+    if (!entreeItem) return;
+    const counts: Record<string, number> = {};
+    (cartItem.selected_side_ids ?? []).forEach((sid) => {
+      counts[sid] = (counts[sid] ?? 0) + 1;
+    });
+    setEntreeSideModal({
+      entreeItem,
+      pendingCartId: null,
+      editingCartId: cartItem.id,
+      selectedSideCounts: counts,
+    });
+  }
+
+  function handleRemoveFromCart(cartId: string) {
+    setCart((prev) => prev.filter((c) => c.id !== cartId));
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -211,39 +311,36 @@ export function OrderForm({ eventId, locationName, event, menuItems, entreeSides
       setSubmitError("Please enter your email.");
       return;
     }
-    if (!canSubmit) {
-      setSubmitError("Please select the required sides for your entrees.");
+    if (cart.length === 0) {
+      setSubmitError("Your cart is empty. Add items before placing your order.");
       return;
     }
     setSubmitting(true);
+
     const items: { menu_item_id: string; quantity: number; item_name: string; item_price: number }[] = [];
-    filteredMenuItems.forEach((m) => {
-      const qty = quantities[m.id] ?? 0;
-      if (qty > 0) {
-        items.push({
-          menu_item_id: m.id,
-          quantity: qty,
-          item_name: m.name,
-          item_price: getPrice(m),
-        });
-      }
-    });
-    entreeSidesByEntree.forEach((config, entreeId) => {
-      const qty = quantities[entreeId] ?? 0;
-      if (qty === 0) return;
-      const selected = entreeSideSelections[entreeId] ?? [];
-      selected.forEach((sideId) => {
-        const side = config.sides.find((s) => s.id === sideId);
-        if (side) {
-          const sideItem = menuItems.find((m) => m.id === sideId);
-          items.push({
-            menu_item_id: sideId,
-            quantity: qty,
-            item_name: side.name,
-            item_price: side.extraCharge,
+    cart.forEach((ci) => {
+      items.push({
+        menu_item_id: ci.menu_item_id,
+        quantity: 1,
+        item_name: ci.item_name,
+        item_price: ci.item_price,
+      });
+      if (ci.selected_side_ids && ci.selected_side_ids.length > 0) {
+        const config = entreeSidesByEntree.get(ci.menu_item_id);
+        if (config) {
+          ci.selected_side_ids.forEach((sideId) => {
+            const side = config.sides.find((s) => s.id === sideId);
+            if (side) {
+              items.push({
+                menu_item_id: sideId,
+                quantity: 1,
+                item_name: side.name,
+                item_price: side.extraCharge,
+              });
+            }
           });
         }
-      });
+      }
     });
 
     const result = await placeOrder(
@@ -261,32 +358,27 @@ export function OrderForm({ eventId, locationName, event, menuItems, entreeSides
 
     setSubmitting(false);
     if (result.success && result.order) {
-      const allLineItems = [...lineItems.map(({ item, qty, unitPrice }) => ({
-        name: item.name,
-        qty,
-        unitPrice,
-      }))];
-      entreeSidesByEntree.forEach((config, entreeId) => {
-        const qty = quantities[entreeId] ?? 0;
-        if (qty === 0) return;
-        const selected = entreeSideSelections[entreeId] ?? [];
-        selected.forEach((sideId) => {
-          const side = config.sides.find((s) => s.id === sideId);
-          if (side) {
-            allLineItems.push({
-              name: side.name,
-              qty,
-              unitPrice: side.extraCharge,
+      const lineItems = cart.flatMap((ci) => {
+        const rows: { name: string; qty: number; unitPrice: number }[] = [
+          { name: ci.item_name, qty: 1, unitPrice: ci.item_price },
+        ];
+        if (ci.selected_side_ids && ci.selected_side_ids.length > 0) {
+          const config = entreeSidesByEntree.get(ci.menu_item_id);
+          if (config) {
+            ci.selected_side_ids.forEach((sid) => {
+              const side = config.sides.find((s) => s.id === sid);
+              if (side) rows.push({ name: side.name, qty: 1, unitPrice: side.extraCharge });
             });
           }
-        });
+        }
+        return rows;
       });
       setConfirmation({
         orderId: result.order.id,
-        total,
+        total: cartTotal,
         customer_name: result.order.customer_name,
         order_type: orderType,
-        lineItems: allLineItems,
+        lineItems,
         estimatedWaitMinutes,
       });
     } else {
@@ -335,6 +427,11 @@ export function OrderForm({ eventId, locationName, event, menuItems, entreeSides
                   {confirmation.lineItems.map((li, i) => (
                     <li key={i}>
                       {li.name} × {li.qty} — {formatPrice(li.unitPrice * li.qty)}
+                      {li.sideNames && li.sideNames.length > 0 && (
+                        <span className="block text-xs text-gray-500 mt-0.5">
+                          {li.sideNames.join(", ")}
+                        </span>
+                      )}
                     </li>
                   ))}
                 </ul>
@@ -359,7 +456,17 @@ export function OrderForm({ eventId, locationName, event, menuItems, entreeSides
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-6">
+    <>
+      {toast && (
+        <div
+          className="fixed bottom-6 left-4 right-4 z-40 mx-auto max-w-md rounded-xl bg-[#1e3a5f] px-4 py-3 text-center font-medium text-[#c9a227] shadow-lg animate-[slideUp_0.3s_ease-out]"
+          role="status"
+          aria-live="polite"
+        >
+          {toast}
+        </div>
+      )}
+      <form onSubmit={handleSubmit} className="space-y-6">
       {/* Contact */}
       <section className="rounded-2xl border border-[#2d5a87] bg-white p-5 shadow-lg sm:p-6">
         <h3 className="text-lg font-bold text-[#1e3a5f]">Your information</h3>
@@ -408,7 +515,7 @@ export function OrderForm({ eventId, locationName, event, menuItems, entreeSides
         </div>
       </section>
 
-      {/* Order type & pickup time */}
+      {/* Order type */}
       <section className="rounded-2xl border border-[#2d5a87] bg-white p-5 shadow-lg sm:p-6">
         <h3 className="text-lg font-bold text-[#1e3a5f]">Order type</h3>
         <div className="mt-4 flex flex-wrap gap-4">
@@ -444,11 +551,11 @@ export function OrderForm({ eventId, locationName, event, menuItems, entreeSides
         </p>
       </section>
 
-      {/* Menu items with quantity */}
+      {/* Menu */}
       <section className="rounded-2xl border border-[#2d5a87] bg-white p-5 shadow-lg sm:p-6">
         <h3 className="text-lg font-bold text-[#1e3a5f]">Menu</h3>
         <p className="mt-1 text-sm text-gray-600">
-          Use + and − to choose quantities.
+          Click + to add items to your order.
         </p>
         <div className="mt-4 space-y-5">
           {categories.map((category) => (
@@ -458,17 +565,8 @@ export function OrderForm({ eventId, locationName, event, menuItems, entreeSides
               </h4>
               <ul className="mt-2 space-y-3">
                 {byCategory[category].map((item) => {
-                  const qty = quantities[item.id] ?? 0;
                   const unitPrice = getPrice(item);
-                  const entreeConfig = entreeSidesByEntree.get(item.id);
-                  const selectedSides = entreeSideSelections[item.id] ?? [];
-                  const needsSides =
-                    qty > 0 &&
-                    entreeConfig &&
-                    entreeConfig.maxSides > 0;
-                  const sideCountOk =
-                    !needsSides || selectedSides.length === entreeConfig!.maxSides;
-
+                  const showPlusButton = canAddDirectly(item);
                   return (
                     <li
                       key={item.id}
@@ -497,94 +595,19 @@ export function OrderForm({ eventId, locationName, event, menuItems, entreeSides
                         <p className="text-sm font-semibold text-[#1e3a5f]">
                           {formatPrice(unitPrice)}
                         </p>
-                        {needsSides && (
-                          <div className="mt-3 rounded-lg border border-[#2d5a87]/30 bg-gray-50/50 p-3">
-                            <p className="text-xs font-medium text-[#1e3a5f]">
-                              Choose up to {entreeConfig!.maxSides} included side
-                              {entreeConfig!.maxSides !== 1 ? "s" : ""}
-                            </p>
-                            <div className="mt-2 flex flex-wrap gap-2">
-                              {entreeConfig!.sides.map((side) => {
-                                const isSelected = selectedSides.includes(side.id);
-                                const atLimit =
-                                  selectedSides.length >= entreeConfig!.maxSides &&
-                                  !isSelected;
-                                return (
-                                  <label
-                                    key={side.id}
-                                    className={`inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm ${
-                                      atLimit
-                                        ? "cursor-not-allowed border-gray-200 bg-gray-100 text-gray-400"
-                                        : "cursor-pointer border-gray-200 bg-white text-gray-700 hover:bg-gray-50"
-                                    }`}
-                                  >
-                                    <input
-                                      type="checkbox"
-                                      checked={isSelected}
-                                      disabled={atLimit}
-                                      onChange={(e) => {
-                                        if (e.target.checked) {
-                                          setEntreeSideSelections((prev) => ({
-                                            ...prev,
-                                            [item.id]: [
-                                              ...(prev[item.id] ?? []),
-                                              side.id,
-                                            ].slice(0, entreeConfig!.maxSides),
-                                          }));
-                                        } else {
-                                          setEntreeSideSelections((prev) => ({
-                                            ...prev,
-                                            [item.id]: (prev[item.id] ?? []).filter(
-                                              (id) => id !== side.id
-                                            ),
-                                          }));
-                                        }
-                                      }}
-                                      className="rounded border-gray-300 text-[#1e3a5f] focus:ring-[#1e3a5f] disabled:opacity-50"
-                                    />
-                                    <span>{side.name}</span>
-                                    {side.extraCharge > 0 && (
-                                      <span className="font-semibold text-[#b8941f]">
-                                        +{formatPrice(side.extraCharge)}
-                                      </span>
-                                    )}
-                                  </label>
-                                );
-                              })}
-                            </div>
-                            {!sideCountOk && (
-                              <p className="mt-1 text-xs text-amber-700">
-                                Select {entreeConfig!.maxSides} side
-                                {entreeConfig!.maxSides !== 1 ? "s" : ""}
-                              </p>
-                            )}
-                          </div>
-                        )}
                       </div>
-                      <div className="flex items-center gap-2 sm:shrink-0">
-                        <button
-                          type="button"
-                          onClick={() => setQuantity(item.id, -1)}
-                          className="flex h-10 w-10 items-center justify-center rounded-lg border border-gray-300 bg-white text-lg font-medium text-gray-700 transition hover:bg-gray-50"
-                          aria-label="Decrease quantity"
-                        >
-                          −
-                        </button>
-                        <span
-                          className="min-w-[2rem] text-center font-medium text-gray-900"
-                          aria-live="polite"
-                        >
-                          {qty}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => setQuantity(item.id, 1)}
-                          className="flex h-10 w-10 items-center justify-center rounded-lg border border-gray-300 bg-white text-lg font-medium text-gray-700 transition hover:bg-gray-50"
-                          aria-label="Increase quantity"
-                        >
-                          +
-                        </button>
-                      </div>
+                      {showPlusButton && (
+                        <div className="sm:shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => handleAddItem(item)}
+                            className="flex h-10 w-10 items-center justify-center rounded-lg border border-gray-300 bg-white text-lg font-medium text-gray-700 transition hover:bg-gray-50"
+                            aria-label="Add to order"
+                          >
+                            +
+                          </button>
+                        </div>
+                      )}
                     </li>
                   );
                 })}
@@ -612,11 +635,73 @@ export function OrderForm({ eventId, locationName, event, menuItems, entreeSides
         />
       </section>
 
-      {/* Total & Submit */}
+      {/* Your Order - Cart */}
       <section className="rounded-2xl border border-[#2d5a87] bg-white p-5 shadow-lg sm:p-6">
-        <div className="flex items-center justify-between text-lg font-bold text-[#1e3a5f]">
-          <span>Order total</span>
-          <span className="text-xl">{formatPrice(total)}</span>
+        <h3 className="text-lg font-bold text-[#1e3a5f]">Your Order</h3>
+        {cart.length === 0 ? (
+          <p className="mt-4 text-sm text-gray-500">Your cart is empty. Add items from the menu above.</p>
+        ) : (
+          <ul className="mt-4 space-y-3">
+            {cart.map((ci) => {
+              const config = entreeSidesByEntree.get(ci.menu_item_id);
+              const hasSides = config && (ci.selected_side_ids?.length ?? 0) > 0;
+              const sideNames = hasSides
+                ? (ci.selected_side_ids ?? [])
+                    .map((sid) => config!.sides.find((s) => s.id === sid)?.name)
+                    .filter(Boolean)
+                : [];
+              const itemTotal = ci.item_price + (hasSides
+                ? (ci.selected_side_ids ?? []).reduce((sum, sid) => {
+                    const side = config!.sides.find((s) => s.id === sid);
+                    return sum + (side?.extraCharge ?? 0);
+                  }, 0)
+                : 0);
+              return (
+                <li
+                  key={ci.id}
+                  className="flex flex-col gap-1 rounded-lg border border-gray-200 p-3"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <p className="font-medium text-gray-900">{ci.item_name}</p>
+                      {sideNames.length > 0 && (
+                        <p className="mt-0.5 text-xs text-gray-600">
+                          {sideNames.join(", ")}
+                        </p>
+                      )}
+                      <p className="text-sm font-semibold text-[#1e3a5f]">
+                        {formatPrice(itemTotal)}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      {config && config.maxSides > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => handleEditSides(ci)}
+                          className="rounded-lg border border-[#2d5a87] px-2 py-1 text-xs font-medium text-[#1e3a5f] hover:bg-[#1e3a5f] hover:text-white"
+                        >
+                          Edit Sides
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveFromCart(ci.id)}
+                        className="rounded-lg border border-red-200 px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-50"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+        <div className="mt-4 border-t border-gray-200 pt-4">
+          <div className="flex items-center justify-between text-lg font-bold text-[#1e3a5f]">
+            <span>Total</span>
+            <span className="text-xl">{formatPrice(cartTotal)}</span>
+          </div>
         </div>
         {estimatedWaitMinutes != null && (
           <p className="mt-2 text-lg font-semibold text-[#1e3a5f]">
@@ -630,12 +715,135 @@ export function OrderForm({ eventId, locationName, event, menuItems, entreeSides
         )}
         <button
           type="submit"
-          disabled={submitting || !canSubmit}
+          disabled={submitting || cart.length === 0}
           className="mt-4 w-full rounded-xl bg-[#c9a227] px-6 py-4 text-lg font-bold uppercase tracking-wide text-[#1e3a5f] shadow-md transition hover:bg-[#d4af37] hover:shadow-lg disabled:opacity-70 disabled:cursor-not-allowed active:bg-[#b8941f]"
         >
           {submitting ? "Placing order…" : "Place Order"}
         </button>
       </section>
     </form>
+
+      {/* Entree sides modal */}
+      {entreeSideModal && (() => {
+        const { maxSides, sides } = getEntreeModalSides(entreeSideModal.entreeItem.id);
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white shadow-xl p-5">
+            <h3 className="text-lg font-bold text-[#1e3a5f]">
+              {entreeSideModal.editingCartId ? "Edit sides" : entreeSideModal.entreeItem.name}
+            </h3>
+            <p className="mt-1 text-sm text-gray-600">
+              {maxSides === 1
+                ? "Choose 1 side"
+                : `Choose ${maxSides} sides`}
+            </p>
+            {(() => {
+              const totalSelected = Object.values(entreeSideModal.selectedSideCounts).reduce((sum, n) => sum + n, 0);
+              return (
+                <p className="mt-1 text-sm font-medium text-[#1e3a5f]">
+                  {totalSelected} of {maxSides} side{maxSides !== 1 ? "s" : ""} selected
+                </p>
+              );
+            })()}
+            <div className="mt-4 space-y-2">
+              {sides.map((side) => {
+                const count = entreeSideModal.selectedSideCounts[side.id] ?? 0;
+                const totalSelected = Object.values(entreeSideModal.selectedSideCounts).reduce((sum, n) => sum + n, 0);
+                const canAdd = totalSelected < maxSides;
+                return (
+                  <div
+                    key={side.id}
+                    className="flex items-center gap-2 rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                  >
+                    <span className="min-w-0 flex-1">{side.name}</span>
+                    {side.extraCharge > 0 && (
+                      <span className="shrink-0 font-semibold text-[#b8941f]">
+                        +{formatPrice(side.extraCharge)}
+                      </span>
+                    )}
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (!canAdd) return;
+                          setEntreeSideModal((prev) =>
+                            prev
+                              ? {
+                                  ...prev,
+                                  selectedSideCounts: {
+                                    ...prev.selectedSideCounts,
+                                    [side.id]: (prev.selectedSideCounts[side.id] ?? 0) + 1,
+                                  },
+                                }
+                              : null
+                          );
+                        }}
+                        disabled={!canAdd}
+                        className="flex h-8 w-8 items-center justify-center rounded-lg border border-gray-300 bg-white text-lg font-medium text-gray-700 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+                        aria-label={`Add ${side.name}`}
+                      >
+                        +
+                      </button>
+                      {count > 0 && (
+                        <>
+                          <span className="min-w-[1.25rem] text-center font-medium text-[#1e3a5f]">
+                            {count}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEntreeSideModal((prev) => {
+                                if (!prev) return null;
+                                const current = prev.selectedSideCounts[side.id] ?? 0;
+                                if (current <= 1) {
+                                  const next = { ...prev.selectedSideCounts };
+                                  delete next[side.id];
+                                  return { ...prev, selectedSideCounts: next };
+                                }
+                                return {
+                                  ...prev,
+                                  selectedSideCounts: {
+                                    ...prev.selectedSideCounts,
+                                    [side.id]: current - 1,
+                                  },
+                                };
+                              });
+                            }}
+                            className="flex h-8 w-8 items-center justify-center rounded-lg border border-gray-300 bg-white text-lg font-medium text-gray-700 transition hover:bg-gray-50"
+                            aria-label={`Remove ${side.name}`}
+                          >
+                            −
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="mt-5 flex gap-3">
+              <button
+                type="button"
+                onClick={() => setEntreeSideModal(null)}
+                className="flex-1 rounded-lg border border-gray-300 px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmEntreeSides}
+                disabled={
+                  Object.values(entreeSideModal.selectedSideCounts).reduce((sum, n) => sum + n, 0) !== maxSides
+                }
+                className="flex-1 rounded-xl bg-[#c9a227] px-4 py-2.5 text-sm font-bold text-[#1e3a5f] hover:bg-[#d4af37] disabled:opacity-70 disabled:cursor-not-allowed"
+              >
+                Confirm
+              </button>
+            </div>
+          </div>
+        </div>
+        );
+      })()}
+    </>
   );
 }

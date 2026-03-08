@@ -366,10 +366,13 @@ export default function AdminLocationPage() {
 
     const { data: sourceMenuItems } = await supabase
       .from("menu_items")
-      .select("name, description, price, category, available, prep_time_minutes, dietary_tags")
+      .select("id, name, description, price, category, available, prep_time_minutes, dietary_tags, dine_in_only, pickup_only, purchasable_individually")
       .eq("event_id", duplicateSourceEvent.id);
 
     if (sourceMenuItems && sourceMenuItems.length > 0) {
+      const sourceItemIds = sourceMenuItems.map((m) => m.id);
+      console.log("[Duplicate Event] Source item IDs:", sourceItemIds);
+
       const copiedItems = sourceMenuItems.map((item) => ({
         event_id: createdEvent.id,
         name: item.name,
@@ -379,8 +382,49 @@ export default function AdminLocationPage() {
         available: item.available,
         prep_time_minutes: item.prep_time_minutes,
         dietary_tags: item.dietary_tags,
+        dine_in_only: item.dine_in_only ?? false,
+        pickup_only: item.pickup_only ?? false,
+        purchasable_individually: item.purchasable_individually ?? (item.category === "entree"),
       }));
-      await supabase.from("menu_items").insert(copiedItems);
+      const { data: insertedItems } = await supabase
+        .from("menu_items")
+        .insert(copiedItems)
+        .select("id");
+
+      const newItemIds = insertedItems?.map((m) => m.id) ?? [];
+      console.log("[Duplicate Event] New inserted item IDs:", newItemIds);
+
+      if (insertedItems && insertedItems.length > 0) {
+        const idMap = new Map<string, string>();
+        sourceMenuItems.forEach((src, i) => {
+          if (insertedItems[i]) idMap.set(src.id, insertedItems[i].id);
+        });
+        console.log("[Duplicate Event] idMap (oldId -> newId):", Object.fromEntries(idMap));
+
+        const { data: entreeSidesRows } = await supabase
+          .from("entree_sides")
+          .select("entree_item_id, side_item_id, max_sides, extra_charge")
+          .in("entree_item_id", sourceItemIds);
+        console.log("[Duplicate Event] Fetched entree_sides rows:", entreeSidesRows);
+
+        if (entreeSidesRows && entreeSidesRows.length > 0) {
+          const newSides = entreeSidesRows
+            .filter((r) => idMap.has(r.entree_item_id) && idMap.has(r.side_item_id))
+            .map((r) => ({
+              entree_item_id: idMap.get(r.entree_item_id)!,
+              side_item_id: idMap.get(r.side_item_id)!,
+              max_sides: r.max_sides,
+              extra_charge: r.extra_charge,
+            }));
+          console.log("[Duplicate Event] Rows to insert into entree_sides:", newSides);
+          if (newSides.length > 0) {
+            const { error: sidesError } = await supabase.from("entree_sides").insert(newSides);
+            if (sidesError) {
+              console.error("[Duplicate Event] Error inserting entree_sides:", sidesError);
+            }
+          }
+        }
+      }
     }
 
     setEvents((prev) => [createdEvent as EventRow, ...prev]);
