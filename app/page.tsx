@@ -18,7 +18,7 @@ async function getUpcomingEvents(): Promise<EventWithLocation[]> {
       end_time,
       dine_in,
       pickup,
-      locations!inner (name, city, state, zip, lat, lng)
+      locations!inner (name, city, state, zip, lat, lng, ordering_enabled)
     `
     )
     .eq("active", true)

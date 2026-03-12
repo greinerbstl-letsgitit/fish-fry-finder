@@ -25,6 +25,7 @@ type LocationRow = {
   contact_name: string | null;
   contact_email: string | null;
   contact_phone: string | null;
+  ordering_enabled: boolean;
 };
 
 type EventRow = {
@@ -139,6 +140,7 @@ export default function AdminLocationPage() {
   const [contactName, setContactName] = useState("");
   const [contactEmail, setContactEmail] = useState("");
   const [contactPhone, setContactPhone] = useState("");
+  const [orderingEnabled, setOrderingEnabled] = useState(false);
 
   const [newEventDate, setNewEventDate] = useState("");
   const [newEventStart, setNewEventStart] = useState("");
@@ -184,7 +186,7 @@ export default function AdminLocationPage() {
     supabase
       .from("locations")
       .select(
-        "id, name, address, city, state, zip, lat, lng, type, description, contact_name, contact_email, contact_phone"
+        "id, name, address, city, state, zip, lat, lng, type, description, contact_name, contact_email, contact_phone, ordering_enabled"
       )
       .eq("id", selectedLocationId)
       .maybeSingle()
@@ -205,6 +207,7 @@ export default function AdminLocationPage() {
             setContactName(loc.contact_name ?? "");
             setContactEmail(loc.contact_email ?? "");
             setContactPhone(loc.contact_phone ?? "");
+            setOrderingEnabled(loc.ordering_enabled ?? false);
           }
         }
         setLoadingLocation(false);
@@ -258,6 +261,7 @@ export default function AdminLocationPage() {
         contact_name: contactName.trim() || null,
         contact_email: contactEmail.trim() || null,
         contact_phone: contactPhone.trim() || null,
+        ordering_enabled: orderingEnabled,
       })
       .eq("id", location.id);
     setLocation((prev) =>
@@ -276,6 +280,7 @@ export default function AdminLocationPage() {
             contact_name: contactName.trim() || null,
             contact_email: contactEmail.trim() || null,
             contact_phone: contactPhone.trim() || null,
+            ordering_enabled: orderingEnabled,
           }
         : null
     );
@@ -724,6 +729,34 @@ export default function AdminLocationPage() {
                           onChange={(e) => setContactPhone(e.target.value)}
                           className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-gray-900"
                         />
+                      </div>
+                    </div>
+                  </div>
+                  <div className="border-t border-gray-100 pt-4">
+                    <div className="flex items-start gap-3">
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={orderingEnabled}
+                        onClick={() => setOrderingEnabled((prev) => !prev)}
+                        className={`relative inline-flex h-7 w-12 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none focus:ring-2 focus:ring-[#c9a227] focus:ring-offset-2 ${
+                          orderingEnabled ? "bg-[#c9a227]" : "bg-gray-200"
+                        }`}
+                      >
+                        <span
+                          className={`pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow ring-0 transition ${
+                            orderingEnabled ? "translate-x-5" : "translate-x-1"
+                          }`}
+                          aria-hidden
+                        />
+                      </button>
+                      <div>
+                        <label htmlFor="ordering-toggle" className="block text-sm font-medium text-gray-900">
+                          Enable Online Ordering
+                        </label>
+                        <p className="mt-1 text-sm text-gray-600">
+                          When enabled customers can place orders online through your profile page.
+                        </p>
                       </div>
                     </div>
                   </div>

@@ -74,7 +74,7 @@ async function getEventById(id: string) {
       end_time,
       dine_in,
       pickup,
-      locations (id, name, city, state, address, zip, type)
+      locations (id, name, city, state, address, zip, type, ordering_enabled)
     `
     )
     .eq("id", id)
@@ -134,6 +134,7 @@ export default async function EventPage({
     state?: string;
     address?: string;
     zip?: string;
+    ordering_enabled?: boolean;
   } | null;
 
   const locationName = loc?.name ?? "Unknown";
@@ -311,12 +312,18 @@ export default async function EventPage({
 
         {/* Order Now CTA */}
         <div className="mt-10 text-center">
-          <Link
-            href={`/events/${id}/order`}
-            className="inline-flex items-center justify-center rounded-xl bg-[#c9a227] px-8 py-4 text-lg font-bold uppercase tracking-wide text-[#1e3a5f] shadow-md transition hover:bg-[#d4af37] hover:shadow-lg active:bg-[#b8941f]"
-          >
-            Order Now
-          </Link>
+          {loc?.ordering_enabled ? (
+            <Link
+              href={`/events/${id}/order`}
+              className="inline-flex items-center justify-center rounded-xl bg-[#c9a227] px-8 py-4 text-lg font-bold uppercase tracking-wide text-[#1e3a5f] shadow-md transition hover:bg-[#d4af37] hover:shadow-lg active:bg-[#b8941f]"
+            >
+              Order Now
+            </Link>
+          ) : (
+            <p className="inline-flex items-center justify-center rounded-xl border border-[#2d5a87] bg-white/5 px-8 py-4 text-lg font-medium text-amber-200">
+              Visit us in person to place your order.
+            </p>
+          )}
         </div>
       </main>
     </div>

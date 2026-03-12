@@ -25,6 +25,7 @@ export type EventWithLocation = {
     zip?: string;
     lat?: number | null;
     lng?: number | null;
+    ordering_enabled?: boolean;
   } | null;
 };
 
@@ -490,12 +491,14 @@ export function EventListWithFilters({ events }: { events: EventWithLocation[] }
                         </div>
                       </div>
                       <div className="flex shrink-0 flex-col items-stretch gap-3 sm:items-end">
-                        <Link
-                          href={`/events/${event.id}/order`}
-                          className="inline-flex items-center justify-center rounded-xl bg-[#c9a227] px-6 py-3.5 text-base font-bold uppercase tracking-wide text-[#1e3a5f] shadow-md transition hover:bg-[#d4af37] hover:shadow-lg active:bg-[#b8941f]"
-                        >
-                          Order Now
-                        </Link>
+                        {loc && "ordering_enabled" in loc && loc.ordering_enabled && (
+                          <Link
+                            href={`/events/${event.id}/order`}
+                            className="inline-flex items-center justify-center rounded-xl bg-[#c9a227] px-6 py-3.5 text-base font-bold uppercase tracking-wide text-[#1e3a5f] shadow-md transition hover:bg-[#d4af37] hover:shadow-lg active:bg-[#b8941f]"
+                          >
+                            Order Now
+                          </Link>
+                        )}
                         <Link
                           href={`/events/${event.id}`}
                           className="text-center text-sm font-medium text-[#2d5a87] underline decoration-[#2d5a87]/50 underline-offset-2 hover:text-[#1e3a5f] sm:text-right"
