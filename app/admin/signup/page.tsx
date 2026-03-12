@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
+import { notifyNewOrganizationAlert } from "./actions";
 import {
   fetchCitySuggestions,
   fetchZipCoords,
@@ -40,10 +41,12 @@ export default function AdminSignupPage() {
   const [contactNameError, setContactNameError] = useState<string | null>(null);
   const [contactPhoneError, setContactPhoneError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [signupSuccess, setSignupSuccess] = useState(false);
   const [citySuggestions, setCitySuggestions] = useState<CitySuggestion[]>([]);
   const [showCitySuggestions, setShowCitySuggestions] = useState(false);
   const [stateSuggestions, setStateSuggestions] = useState<string[]>([]);
   const [showStateSuggestions, setShowStateSuggestions] = useState(false);
+  const [signupComplete, setSignupComplete] = useState(false);
   const cityInputRef = useRef<HTMLInputElement>(null);
   const citySuggestionsRef = useRef<HTMLDivElement>(null);
   const stateInputRef = useRef<HTMLInputElement>(null);
@@ -196,6 +199,7 @@ export default function AdminSignupPage() {
       contact_name: contactName.trim() || null,
       contact_email: contactEmail.trim() || null,
       contact_phone: contactPhone.trim() || null,
+      approved: false,
     });
 
     setSubmitting(false);
@@ -205,8 +209,13 @@ export default function AdminSignupPage() {
       return;
     }
 
-    router.push("/admin/dashboard");
-    router.refresh();
+    await notifyNewOrganizationAlert({
+      name: orgName.trim(),
+      city: city.trim(),
+      contactName: contactName.trim(),
+      contactPhone: contactPhone.trim(),
+    });
+    setSignupComplete(true);
   }
 
   return (
@@ -230,7 +239,21 @@ export default function AdminSignupPage() {
 
       <main className="flex-1 px-4 py-8 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-lg">
-          <form
+          {signupComplete ? (
+            <div className="rounded-2xl border border-[#2d5a87] bg-white p-6 shadow-lg sm:p-8 text-center">
+              <h2 className="text-xl font-bold text-[#1e3a5f]">Thank you for registering!</h2>
+              <p className="mt-4 text-gray-700">
+                Your listing has been submitted for review. You will be contacted by Brett Greiner at greinerbstl@gmail.com once your listing is approved. This usually takes less than 24 hours.
+              </p>
+              <Link
+                href="/admin/login"
+                className="mt-6 inline-block rounded-xl bg-[#c9a227] px-5 py-3 text-base font-bold text-[#1e3a5f] transition hover:bg-[#d4af37]"
+              >
+                Go to Sign In
+              </Link>
+            </div>
+          ) : (
+            <form
             onSubmit={handleSubmit}
             className="rounded-2xl border border-[#2d5a87] bg-white p-6 shadow-lg sm:p-8"
           >
@@ -573,6 +596,7 @@ export default function AdminSignupPage() {
               </Link>
             </p>
           </form>
+          )}
         </div>
       </main>
     </div>

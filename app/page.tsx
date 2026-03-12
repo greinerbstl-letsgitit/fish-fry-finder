@@ -18,10 +18,11 @@ async function getUpcomingEvents(): Promise<EventWithLocation[]> {
       end_time,
       dine_in,
       pickup,
-      locations (name, city, state, zip, lat, lng)
+      locations!inner (name, city, state, zip, lat, lng)
     `
     )
     .eq("active", true)
+    .eq("locations.approved", true)
     .gte("event_date", today)
     .order("event_date", { ascending: true })
     .order("start_time", { ascending: true });

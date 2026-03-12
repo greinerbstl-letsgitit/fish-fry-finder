@@ -6,9 +6,21 @@ import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { fetchZipCoords } from "@/lib/geo";
 import { checkIsSuperAdmin, getManagedLocations } from "@/lib/admin-access";
+import { approveLocation, rejectLocation } from "./actions";
 
 type LocationRow = { id: string; name: string } | null;
 type ManagedLocation = { id: string; name: string };
+type PendingLocation = {
+  id: string;
+  name: string;
+  city: string;
+  state: string;
+  type: string | null;
+  contact_name: string | null;
+  contact_phone: string | null;
+  contact_email: string | null;
+  user_id: string | null;
+};
 type NewLocationFormState = {
   name: string;
   address: string;
@@ -41,6 +53,9 @@ export default function AdminDashboardPage() {
   const [savingLocation, setSavingLocation] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
+  const [pendingLocations, setPendingLocations] = useState<PendingLocation[]>([]);
+  const [pendingLoading, setPendingLoading] = useState(false);
+  const [actionLocationId, setActionLocationId] = useState<string | null>(null);
   const [newLocation, setNewLocation] = useState<NewLocationFormState>({
     name: "",
     address: "",
@@ -83,6 +98,48 @@ export default function AdminDashboardPage() {
       setLocationLoading(false);
     });
   }, [user?.id]);
+
+  useEffect(() => {
+    if (!isSuperAdmin || !user?.id) return;
+    setPendingLoading(true);
+    supabase
+      .from("locations")
+      .select("id, name, city, state, type, contact_name, contact_phone, contact_email, user_id")
+      .eq("approved", false)
+      .then(({ data }) => {
+        setPendingLocations((data as PendingLocation[]) ?? []);
+        setPendingLoading(false);
+      });
+  }, [isSuperAdmin, user?.id]);
+
+  async function handleApprove(loc: PendingLocation) {
+    if (!user?.id) return;
+    setActionLocationId(loc.id);
+    const result = await approveLocation(loc.id, loc.contact_email, loc.name, user.id);
+    setActionLocationId(null);
+    if (result.ok) {
+      setPendingLocations((prev) => prev.filter((p) => p.id !== loc.id));
+      setSuccessMessage(`"${loc.name}" has been approved.`);
+    } else {
+      setSuccessMessage(null);
+      setFormError(result.error ?? "Could not approve.");
+    }
+  }
+
+  async function handleReject(loc: PendingLocation) {
+    if (!user?.id) return;
+    if (!confirm(`Reject "${loc.name}"? This will delete the location and the associated user account.`)) return;
+    setActionLocationId(loc.id);
+    const result = await rejectLocation(loc.id, user.id);
+    setActionLocationId(null);
+    if (result.ok) {
+      setPendingLocations((prev) => prev.filter((p) => p.id !== loc.id));
+      setSuccessMessage(`"${loc.name}" has been rejected.`);
+    } else {
+      setSuccessMessage(null);
+      setFormError(result.error ?? "Could not reject.");
+    }
+  }
 
   async function handleCreateLocation(e: React.FormEvent) {
     e.preventDefault();
@@ -127,6 +184,7 @@ export default function AdminDashboardPage() {
         contact_name: contactName,
         contact_phone: contactPhone,
         contact_email: newLocation.contactEmail.trim() || null,
+        approved: true,
       })
       .select("id, name")
       .single();
@@ -282,6 +340,68 @@ export default function AdminDashboardPage() {
             <p className="mt-4 rounded-lg bg-emerald-100 px-4 py-3 text-sm font-medium text-emerald-800">
               {successMessage}
             </p>
+          )}
+          {formError && (
+            <p className="mt-4 rounded-lg bg-red-100 px-4 py-3 text-sm font-medium text-red-800">
+              {formError}
+            </p>
+          )}
+          {isSuperAdmin && (
+            <div className="mt-8 rounded-2xl border border-[#2d5a87] bg-white p-6 shadow-lg sm:p-8">
+              <h2 className="text-xl font-bold text-[#1e3a5f]">Pending Approvals</h2>
+              <p className="mt-1 text-gray-600">Review and approve or reject new organization signups.</p>
+              {pendingLoading ? (
+                <p className="mt-4 text-gray-600">Loading…</p>
+              ) : pendingLocations.length === 0 ? (
+                <p className="mt-4 text-gray-500">No pending approvals.</p>
+              ) : (
+                <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                  {pendingLocations.map((loc) => (
+                    <div
+                      key={loc.id}
+                      className="rounded-xl border border-[#2d5a87]/50 bg-gray-50/50 p-4"
+                    >
+                      <h3 className="font-bold text-[#1e3a5f]">{loc.name}</h3>
+                      <p className="mt-1 text-sm text-gray-600">
+                        {loc.city}, {loc.state}
+                        {loc.type && ` · ${loc.type}`}
+                      </p>
+                      <p className="mt-2 text-sm text-gray-700">
+                        <span className="font-medium">Contact:</span> {loc.contact_name ?? "—"}
+                      </p>
+                      {loc.contact_phone && (
+                        <p className="text-sm text-gray-700">
+                          <span className="font-medium">Phone:</span> {loc.contact_phone}
+                        </p>
+                      )}
+                      {loc.contact_email && (
+                        <p className="text-sm text-gray-700">
+                          <span className="font-medium">Email:</span> {loc.contact_email}
+                        </p>
+                      )}
+                      <div className="mt-4 flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleApprove(loc)}
+                          disabled={actionLocationId === loc.id}
+                          className="rounded-lg bg-[#c9a227] px-4 py-2 text-sm font-bold text-[#1e3a5f] transition hover:bg-[#d4af37] disabled:opacity-70"
+                        >
+                          {actionLocationId === loc.id ? "Processing…" : "Approve"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleReject(loc)}
+                          disabled={actionLocationId === loc.id}
+                          className="rounded-lg border border-red-300 bg-white px-4 py-2 text-sm font-medium text-red-700 transition hover:bg-red-50 disabled:opacity-70"
+                        >
+                          Reject
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           )}
         </div>
       </main>
