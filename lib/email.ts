@@ -227,7 +227,8 @@ export async function sendApprovalConfirmation(to: string, locationName: string)
 <body style="font-family:system-ui,-apple-system,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#333;line-height:1.5">
   <h1 style="font-size:1.5rem;color:#1e3a5f;margin-bottom:16px">Your listing is now live!</h1>
   <p style="margin:0 0 16px">Great news — <strong>${escapeHtml(locationName)}</strong> has been approved and is now visible on the Fish Fry Finder.</p>
-  <p style="margin:0;padding:16px;background:#f0fdf4;border-radius:8px;color:#166534;border-left:4px solid #c9a227">You can now sign in to the admin dashboard to add events, set up your menu, and start accepting orders.</p>
+  <p style="margin:0 0 16px">You will receive a separate email with a link to set your password and log in to the admin dashboard. Once logged in, you can add events, set up your menu, and start accepting orders.</p>
+  <p style="margin:0;padding:16px;background:#f0fdf4;border-radius:8px;color:#166534;border-left:4px solid #c9a227">Check your inbox for the password setup email. If you don't see it, check your spam folder.</p>
 </body>
 </html>
 `.trim();
@@ -241,6 +242,47 @@ export async function sendApprovalConfirmation(to: string, locationName: string)
 
   if (error) {
     console.error("Resend sendApprovalConfirmation error:", error);
+    return { ok: false as const, error: error.message };
+  }
+  return { ok: true as const, id: result?.id };
+}
+
+export async function sendPasswordSetupEmail(
+  to: string,
+  actionLink: string,
+  locationName: string
+) {
+  if (!process.env.RESEND_API_KEY) {
+    console.warn("RESEND_API_KEY not set; skipping password setup email");
+    return { ok: false as const, error: "Email not configured" };
+  }
+
+  const html = `
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="font-family:system-ui,-apple-system,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#333;line-height:1.5">
+  <h1 style="font-size:1.5rem;color:#1e3a5f;margin-bottom:16px">Set your password</h1>
+  <p style="margin:0 0 16px">Your claim for <strong>${escapeHtml(locationName)}</strong> has been approved.</p>
+  <p style="margin:0 0 16px">Click the link below to set your password and log in to the admin dashboard:</p>
+  <p style="margin:0 0 24px">
+    <a href="${escapeHtml(actionLink)}" style="display:inline-block;padding:12px 24px;background:#c9a227;color:#1e3a5f;font-weight:bold;text-decoration:none;border-radius:8px">Set your password</a>
+  </p>
+  <p style="margin:0;color:#666;font-size:0.875rem">If the button does not work, copy and paste this link into your browser:</p>
+  <p style="margin:8px 0 0;word-break:break-all;font-size:0.875rem;color:#1e3a5f">${escapeHtml(actionLink)}</p>
+</body>
+</html>
+`.trim();
+
+  const { data: result, error } = await resend.emails.send({
+    from: FROM_EMAIL,
+    to: [to],
+    subject: `Set your password — ${locationName}`,
+    html,
+  });
+
+  if (error) {
+    console.error("Resend sendPasswordSetupEmail error:", error);
     return { ok: false as const, error: error.message };
   }
   return { ok: true as const, id: result?.id };

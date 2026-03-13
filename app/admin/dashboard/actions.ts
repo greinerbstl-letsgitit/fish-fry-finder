@@ -1,7 +1,7 @@
 "use server";
 
 import { supabaseAdmin } from "@/lib/supabase-admin";
-import { sendApprovalConfirmation } from "@/lib/email";
+import { sendApprovalConfirmation, sendPasswordSetupEmail } from "@/lib/email";
 import { checkIsSuperAdmin } from "@/lib/admin-access";
 
 export async function approveLocation(
@@ -168,21 +168,36 @@ export async function approveClaimRequest(
       };
     }
     userIdToAssign = existingUser.id;
-  } else {
-    // Create new account
-    const password = crypto.randomUUID() + crypto.randomUUID().replace(/-/g, "");
-    const { data: userData, error: createError } = await supabaseAdmin.auth.admin.createUser({
+    // Send password reset link so they can log in (existing account)
+    const { data: linkData, error: linkError } = await supabaseAdmin.auth.admin.generateLink({
+      type: "recovery",
       email,
-      password,
-      email_confirm: true,
     });
-    if (createError || !userData.user) {
-      console.error("[approveClaimRequest] createUser error:", createError);
-      return { ok: false as const, error: createError?.message ?? "Could not create user" };
+    if (!linkError && linkData?.properties?.action_link) {
+      await sendPasswordSetupEmail(email, linkData.properties.action_link, locationName);
+    } else {
+      console.warn("[approveClaimRequest] generateLink for existing user failed:", linkError);
     }
-    userIdToAssign = userData.user.id;
+  } else {
+    // New user: invite via email (Supabase sends invite with password setup link)
+    const { data: inviteData, error: inviteError } = await supabaseAdmin.auth.admin.inviteUserByEmail(
+      email
+    );
+    if (inviteError || !inviteData?.user) {
+      console.error("[approveClaimRequest] inviteUserByEmail error:", inviteError);
+      return {
+        ok: false as const,
+        error: inviteError?.message ?? "Could not invite user",
+      };
+    }
+    userIdToAssign = inviteData.user.id;
   }
 
+  // Update location with user_id (Bug 2: ensure Claim button grays out)
+  console.log("[approveClaimRequest] Writing user_id to locations:", {
+    locationId,
+    userIdToAssign,
+  });
   const { error: locError } = await supabaseAdmin
     .from("locations")
     .update({ user_id: userIdToAssign, approved: true })
