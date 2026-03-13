@@ -149,12 +149,45 @@ export async function approveClaimRequest(
   locationName: string,
   userId: string
 ) {
+  console.log("[approveClaimRequest] called", { claimId, locationId, claimantEmail, locationName, userId });
   const isSuperAdmin = await checkIsSuperAdmin(userId);
-  if (!isSuperAdmin) return { ok: false as const, error: "Unauthorized" };
-  if (!supabaseAdmin) return { ok: false as const, error: "Server misconfigured" };
+  if (!isSuperAdmin) {
+    console.error("[approveClaimRequest] EARLY RETURN: not super admin");
+    return { ok: false as const, error: "Unauthorized" };
+  }
+  if (!supabaseAdmin) {
+    console.error("[approveClaimRequest] EARLY RETURN: supabaseAdmin not configured");
+    return { ok: false as const, error: "Server misconfigured" };
+  }
+
+  // Auto-reject any other pending claims for this location FIRST (runs before any user/email logic)
+  console.log("[approveClaimRequest] Auto-rejecting other pending claims:", {
+    locationId,
+    claimIdKept: claimId,
+  });
+  const { data: rejectData, error: rejectError } = await supabaseAdmin
+    .from("claim_requests")
+    .update({ status: "rejected" })
+    .eq("location_id", locationId)
+    .eq("status", "pending")
+    .neq("id", claimId)
+    .select("id");
+  console.log("[approveClaimRequest] Auto-reject result:", {
+    locationId,
+    claimIdKept: claimId,
+    rowsUpdated: rejectData?.length ?? 0,
+    rejectedIds: rejectData?.map((r) => (r as { id: string }).id) ?? [],
+    error: rejectError?.message ?? null,
+  });
+  if (rejectError) {
+    console.error("[approveClaimRequest] Auto-reject query failed:", rejectError);
+  }
 
   const email = claimantEmail.trim();
-  if (!email) return { ok: false as const, error: "Invalid email" };
+  if (!email) {
+    console.error("[approveClaimRequest] EARLY RETURN: invalid email");
+    return { ok: false as const, error: "Invalid email" };
+  }
 
   // Check if claimant already has an auth account
   const { data: listData } = await supabaseAdmin.auth.admin.listUsers({ page: 1, perPage: 1000 });
@@ -169,6 +202,7 @@ export async function approveClaimRequest(
       .select("id")
       .eq("user_id", existingUser.id);
     if (existingLocations && existingLocations.length > 0) {
+      console.error("[approveClaimRequest] EARLY RETURN: user already manages a location");
       return {
         ok: false as const,
         error: "This user already manages a location and cannot claim another.",
@@ -198,7 +232,7 @@ export async function approveClaimRequest(
       email
     );
     if (inviteError || !inviteData?.user) {
-      console.error("[approveClaimRequest] inviteUserByEmail error:", inviteError);
+      console.error("[approveClaimRequest] EARLY RETURN: inviteUserByEmail error:", inviteError);
       return {
         ok: false as const,
         error: inviteError?.message ?? "Could not invite user",
@@ -217,31 +251,8 @@ export async function approveClaimRequest(
     .update({ user_id: userIdToAssign, approved: true })
     .eq("id", locationId);
   if (locError) {
-    console.error("[approveClaimRequest] location update error:", locError);
+    console.error("[approveClaimRequest] EARLY RETURN: location update error:", locError);
     return { ok: false as const, error: locError.message };
-  }
-
-  // Auto-reject any other pending claims for this location (after location update, before success)
-  console.log("[approveClaimRequest] Auto-rejecting other pending claims:", {
-    locationId,
-    claimIdKept: claimId,
-  });
-  const { data: rejectData, error: rejectError } = await supabaseAdmin
-    .from("claim_requests")
-    .update({ status: "rejected" })
-    .eq("location_id", locationId)
-    .eq("status", "pending")
-    .neq("id", claimId)
-    .select("id");
-  console.log("[approveClaimRequest] Auto-reject result:", {
-    locationId,
-    claimIdKept: claimId,
-    rowsUpdated: rejectData?.length ?? 0,
-    rejectedIds: rejectData?.map((r) => (r as { id: string }).id) ?? [],
-    error: rejectError?.message ?? null,
-  });
-  if (rejectError) {
-    console.error("[approveClaimRequest] Auto-reject query failed:", rejectError);
   }
 
   await supabaseAdmin
@@ -257,6 +268,7 @@ export async function approveClaimRequest(
   } catch (err) {
     console.error("[approveClaimRequest] sendApprovalConfirmation exception:", err);
   }
+  console.log("[approveClaimRequest] SUCCESS - returning ok: true");
   return { ok: true as const };
 }
 
