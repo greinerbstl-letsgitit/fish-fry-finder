@@ -42,7 +42,14 @@ export async function approveLocation(
   }
 
   if (contactEmail?.trim()) {
-    await sendApprovalConfirmation(contactEmail.trim(), locationName);
+    try {
+      const emailResult = await sendApprovalConfirmation(contactEmail.trim(), locationName);
+      if (!emailResult.ok) {
+        console.error("[approveLocation] sendApprovalConfirmation failed:", emailResult.error);
+      }
+    } catch (err) {
+      console.error("[approveLocation] sendApprovalConfirmation exception:", err);
+    }
   }
 
   console.log("[approveLocation] success");
@@ -174,7 +181,14 @@ export async function approveClaimRequest(
       email,
     });
     if (!linkError && linkData?.properties?.action_link) {
-      await sendPasswordSetupEmail(email, linkData.properties.action_link, locationName);
+      try {
+        const emailResult = await sendPasswordSetupEmail(email, linkData.properties.action_link, locationName);
+        if (!emailResult.ok) {
+          console.error("[approveClaimRequest] sendPasswordSetupEmail failed:", emailResult.error);
+        }
+      } catch (err) {
+        console.error("[approveClaimRequest] sendPasswordSetupEmail exception:", err);
+      }
     } else {
       console.warn("[approveClaimRequest] generateLink for existing user failed:", linkError);
     }
@@ -235,7 +249,14 @@ export async function approveClaimRequest(
     .update({ status: "approved" })
     .eq("id", claimId);
 
-  await sendApprovalConfirmation(email, locationName);
+  try {
+    const emailResult = await sendApprovalConfirmation(email, locationName);
+    if (!emailResult.ok) {
+      console.error("[approveClaimRequest] sendApprovalConfirmation failed:", emailResult.error);
+    }
+  } catch (err) {
+    console.error("[approveClaimRequest] sendApprovalConfirmation exception:", err);
+  }
   return { ok: true as const };
 }
 

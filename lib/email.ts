@@ -78,18 +78,22 @@ export async function sendOrderConfirmation(
 </html>
 `.trim();
 
-  const { data: result, error } = await resend.emails.send({
-    from: FROM_EMAIL,
-    to: [to],
-    subject: `Order confirmed — ${data.locationName}`,
-    html,
-  });
-
-  if (error) {
-    console.error("Resend sendOrderConfirmation error:", error);
-    return { ok: false as const, error: error.message };
+  try {
+    const { data: result, error } = await resend.emails.send({
+      from: FROM_EMAIL,
+      to: [to],
+      subject: `Order confirmed — ${data.locationName}`,
+      html,
+    });
+    if (error) {
+      console.error("Resend sendOrderConfirmation error:", error);
+      return { ok: false as const, error: error.message };
+    }
+    return { ok: true as const, id: result?.id };
+  } catch (err) {
+    console.error("Resend sendOrderConfirmation exception:", err);
+    return { ok: false as const, error: err instanceof Error ? err.message : String(err) };
   }
-  return { ok: true as const, id: result?.id };
 }
 
 export async function sendOrderReady(to: string, locationName: string) {
@@ -110,18 +114,22 @@ export async function sendOrderReady(to: string, locationName: string) {
 </html>
 `.trim();
 
-  const { data: result, error } = await resend.emails.send({
-    from: FROM_EMAIL,
-    to: [to],
-    subject: `Your order from ${locationName} is ready for pickup`,
-    html,
-  });
-
-  if (error) {
-    console.error("Resend sendOrderReady error:", error);
-    return { ok: false as const, error: error.message };
+  try {
+    const { data: result, error } = await resend.emails.send({
+      from: FROM_EMAIL,
+      to: [to],
+      subject: `Your order from ${locationName} is ready for pickup`,
+      html,
+    });
+    if (error) {
+      console.error("Resend sendOrderReady error:", error);
+      return { ok: false as const, error: error.message };
+    }
+    return { ok: true as const, id: result?.id };
+  } catch (err) {
+    console.error("Resend sendOrderReady exception:", err);
+    return { ok: false as const, error: err instanceof Error ? err.message : String(err) };
   }
-  return { ok: true as const, id: result?.id };
 }
 
 export async function sendNewOrganizationAlert(data: {
@@ -153,18 +161,22 @@ export async function sendNewOrganizationAlert(data: {
 </html>
 `.trim();
 
-  const { data: result, error } = await resend.emails.send({
-    from: FROM_EMAIL,
-    to: ["greinerbstl@gmail.com"],
-    subject: `New Fish Fry Signup: ${data.name} (${data.city})`,
-    html,
-  });
-
-  if (error) {
-    console.error("Resend sendNewOrganizationAlert error:", error);
-    return { ok: false as const, error: error.message };
+  try {
+    const { data: result, error } = await resend.emails.send({
+      from: FROM_EMAIL,
+      to: ["greinerbstl@gmail.com"],
+      subject: `New Fish Fry Signup: ${data.name} (${data.city})`,
+      html,
+    });
+    if (error) {
+      console.error("Resend sendNewOrganizationAlert error:", error);
+      return { ok: false as const, error: error.message };
+    }
+    return { ok: true as const, id: result?.id };
+  } catch (err) {
+    console.error("Resend sendNewOrganizationAlert exception:", err);
+    return { ok: false as const, error: err instanceof Error ? err.message : String(err) };
   }
-  return { ok: true as const, id: result?.id };
 }
 
 export async function sendClaimRequestAlert(data: {
@@ -200,18 +212,22 @@ export async function sendClaimRequestAlert(data: {
 </html>
 `.trim();
 
-  const { data: result, error } = await resend.emails.send({
-    from: FROM_EMAIL,
-    to: ["greinerbstl@gmail.com"],
-    subject: `Claim Request: ${data.locationName} — ${data.claimantName}`,
-    html,
-  });
-
-  if (error) {
-    console.error("Resend sendClaimRequestAlert error:", error);
-    return { ok: false as const, error: error.message };
+  try {
+    const { data: result, error } = await resend.emails.send({
+      from: FROM_EMAIL,
+      to: ["greinerbstl@gmail.com"],
+      subject: `Claim Request: ${data.locationName} — ${data.claimantName}`,
+      html,
+    });
+    if (error) {
+      console.error("Resend sendClaimRequestAlert error:", error);
+      return { ok: false as const, error: error.message };
+    }
+    return { ok: true as const, id: result?.id };
+  } catch (err) {
+    console.error("Resend sendClaimRequestAlert exception:", err);
+    return { ok: false as const, error: err instanceof Error ? err.message : String(err) };
   }
-  return { ok: true as const, id: result?.id };
 }
 
 export async function sendApprovalConfirmation(to: string, locationName: string) {
@@ -233,18 +249,22 @@ export async function sendApprovalConfirmation(to: string, locationName: string)
 </html>
 `.trim();
 
-  const { data: result, error } = await resend.emails.send({
-    from: FROM_EMAIL,
-    to: [to],
-    subject: `Your listing is now live — ${locationName}`,
-    html,
-  });
-
-  if (error) {
-    console.error("Resend sendApprovalConfirmation error:", error);
-    return { ok: false as const, error: error.message };
+  try {
+    const { data: result, error } = await resend.emails.send({
+      from: FROM_EMAIL,
+      to: [to],
+      subject: `Your listing is now live — ${locationName}`,
+      html,
+    });
+    if (error) {
+      console.error("Resend sendApprovalConfirmation error:", error);
+      return { ok: false as const, error: error.message };
+    }
+    return { ok: true as const, id: result?.id };
+  } catch (err) {
+    console.error("Resend sendApprovalConfirmation exception:", err);
+    return { ok: false as const, error: err instanceof Error ? err.message : String(err) };
   }
-  return { ok: true as const, id: result?.id };
 }
 
 export async function sendPasswordSetupEmail(
@@ -274,18 +294,22 @@ export async function sendPasswordSetupEmail(
 </html>
 `.trim();
 
-  const { data: result, error } = await resend.emails.send({
-    from: FROM_EMAIL,
-    to: [to],
-    subject: `Set your password — ${locationName}`,
-    html,
-  });
-
-  if (error) {
-    console.error("Resend sendPasswordSetupEmail error:", error);
-    return { ok: false as const, error: error.message };
+  try {
+    const { data: result, error } = await resend.emails.send({
+      from: FROM_EMAIL,
+      to: [to],
+      subject: `Set your password — ${locationName}`,
+      html,
+    });
+    if (error) {
+      console.error("Resend sendPasswordSetupEmail error:", error);
+      return { ok: false as const, error: error.message };
+    }
+    return { ok: true as const, id: result?.id };
+  } catch (err) {
+    console.error("Resend sendPasswordSetupEmail exception:", err);
+    return { ok: false as const, error: err instanceof Error ? err.message : String(err) };
   }
-  return { ok: true as const, id: result?.id };
 }
 
 function escapeHtml(s: string): string {
