@@ -128,16 +128,17 @@ export default function AdminDashboardPage() {
   async function handleApproveClaim(cr: ClaimRequestRow) {
     if (!user?.id) return;
     const locationName = (cr.locations as { name?: string } | null)?.name ?? "Unknown";
+    const locationId = cr.location_id; // Remove ALL claims for this location when one is approved
     setActionClaimId(cr.id);
     setClaimErrorById((prev) => ({ ...prev, [cr.id]: "" }));
-    const result = await approveClaimRequest(cr.id, cr.location_id, cr.email, locationName, user.id);
+    const result = await approveClaimRequest(cr.id, locationId, cr.email, locationName, user.id);
     setActionClaimId(null);
     if (result.ok) {
       const removedIds = claimRequests
-        .filter((c) => c.location_id === cr.location_id)
+        .filter((c) => c.location_id === locationId)
         .map((c) => c.id);
       setClaimRequests((prev) =>
-        prev.filter((c) => c.location_id !== cr.location_id)
+        prev.filter((c) => c.location_id !== locationId)
       );
       setClaimErrorById((prev) => {
         const next = { ...prev };
@@ -159,7 +160,7 @@ export default function AdminDashboardPage() {
     const result = await rejectClaimRequest(cr.id, user.id);
     setActionClaimId(null);
     if (result.ok) {
-      setClaimRequests((prev) => prev.filter((c) => c.location_id !== cr.location_id));
+      setClaimRequests((prev) => prev.filter((c) => c.id !== cr.id));
       setSuccessMessage("Claim request has been rejected.");
     } else {
       setSuccessMessage(null);

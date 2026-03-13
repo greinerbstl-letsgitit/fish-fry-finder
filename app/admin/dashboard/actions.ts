@@ -207,18 +207,33 @@ export async function approveClaimRequest(
     return { ok: false as const, error: locError.message };
   }
 
-  await supabaseAdmin
-    .from("claim_requests")
-    .update({ status: "approved" })
-    .eq("id", claimId);
-
-  // Auto-reject any other pending claims for this location
-  await supabaseAdmin
+  // Auto-reject any other pending claims for this location (after location update, before success)
+  console.log("[approveClaimRequest] Auto-rejecting other pending claims:", {
+    locationId,
+    claimIdKept: claimId,
+  });
+  const { data: rejectData, error: rejectError } = await supabaseAdmin
     .from("claim_requests")
     .update({ status: "rejected" })
     .eq("location_id", locationId)
     .eq("status", "pending")
-    .neq("id", claimId);
+    .neq("id", claimId)
+    .select("id");
+  console.log("[approveClaimRequest] Auto-reject result:", {
+    locationId,
+    claimIdKept: claimId,
+    rowsUpdated: rejectData?.length ?? 0,
+    rejectedIds: rejectData?.map((r) => (r as { id: string }).id) ?? [],
+    error: rejectError?.message ?? null,
+  });
+  if (rejectError) {
+    console.error("[approveClaimRequest] Auto-reject query failed:", rejectError);
+  }
+
+  await supabaseAdmin
+    .from("claim_requests")
+    .update({ status: "approved" })
+    .eq("id", claimId);
 
   await sendApprovalConfirmation(email, locationName);
   return { ok: true as const };
