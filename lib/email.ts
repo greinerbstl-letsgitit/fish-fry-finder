@@ -167,6 +167,53 @@ export async function sendNewOrganizationAlert(data: {
   return { ok: true as const, id: result?.id };
 }
 
+export async function sendClaimRequestAlert(data: {
+  locationName: string;
+  claimantName: string;
+  claimantEmail: string;
+  claimantPhone: string;
+  role: string;
+  message: string;
+}) {
+  if (!process.env.RESEND_API_KEY) {
+    console.warn("RESEND_API_KEY not set; skipping claim request alert");
+    return { ok: false as const, error: "Email not configured" };
+  }
+
+  const html = `
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="font-family:system-ui,-apple-system,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#333;line-height:1.5">
+  <h1 style="font-size:1.5rem;color:#1e3a5f;margin-bottom:16px">Claim Request</h1>
+  <p style="margin:0 0 16px">Someone wants to claim a fish fry listing.</p>
+  <div style="padding:16px;background:#f8f9fa;border-radius:8px;border-left:4px solid #c9a227;margin:16px 0">
+    <p style="margin:0 0 8px"><strong>Location:</strong> ${escapeHtml(data.locationName)}</p>
+    <p style="margin:0 0 8px"><strong>Name:</strong> ${escapeHtml(data.claimantName)}</p>
+    <p style="margin:0 0 8px"><strong>Email:</strong> ${escapeHtml(data.claimantEmail)}</p>
+    <p style="margin:0 0 8px"><strong>Phone:</strong> ${escapeHtml(data.claimantPhone)}</p>
+    <p style="margin:0 0 8px"><strong>Role:</strong> ${escapeHtml(data.role)}</p>
+    <p style="margin:0 0 0"><strong>Message:</strong> ${escapeHtml(data.message)}</p>
+  </div>
+  <p style="margin:16px 0 0;color:#555">Log in to the admin dashboard to review.</p>
+</body>
+</html>
+`.trim();
+
+  const { data: result, error } = await resend.emails.send({
+    from: FROM_EMAIL,
+    to: ["greinerbstl@gmail.com"],
+    subject: `Claim Request: ${data.locationName} — ${data.claimantName}`,
+    html,
+  });
+
+  if (error) {
+    console.error("Resend sendClaimRequestAlert error:", error);
+    return { ok: false as const, error: error.message };
+  }
+  return { ok: true as const, id: result?.id };
+}
+
 export async function sendApprovalConfirmation(to: string, locationName: string) {
   if (!process.env.RESEND_API_KEY) {
     console.warn("RESEND_API_KEY not set; skipping approval confirmation email");

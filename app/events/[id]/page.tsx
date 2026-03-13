@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { OrderNowButton } from "@/app/components/OrderNowButton";
 import { notFound } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import ShareMenu from "./ShareMenu";
@@ -313,12 +314,13 @@ export default async function EventPage({
         {/* Order Now CTA */}
         <div className="mt-10 text-center">
           {loc?.ordering_enabled ? (
-            <Link
-              href={`/events/${id}/order`}
-              className="inline-flex items-center justify-center rounded-xl bg-[#c9a227] px-8 py-4 text-lg font-bold uppercase tracking-wide text-[#1e3a5f] shadow-md transition hover:bg-[#d4af37] hover:shadow-lg active:bg-[#b8941f]"
-            >
-              Order Now
-            </Link>
+            <OrderNowButton
+              eventId={id}
+              eventDate={event.event_date}
+              startTime={event.start_time}
+              endTime={event.end_time}
+              variant="page"
+            />
           ) : (
             <p className="inline-flex items-center justify-center rounded-xl border border-[#2d5a87] bg-white/5 px-8 py-4 text-lg font-medium text-amber-200">
               Visit us in person to place your order.

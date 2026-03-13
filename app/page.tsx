@@ -34,7 +34,19 @@ async function getUpcomingEvents(): Promise<EventWithLocation[]> {
 
   return (data || []).map((row: { locations: unknown; [k: string]: unknown }) => {
     const { locations, ...rest } = row;
-    const location = Array.isArray(locations) ? locations[0] : locations;
+    const locRaw = Array.isArray(locations) ? locations[0] : locations;
+    const loc = locRaw && typeof locRaw === "object" ? (locRaw as Record<string, unknown>) : null;
+    const location = loc
+      ? {
+          name: loc.name,
+          city: loc.city,
+          state: loc.state,
+          zip: loc.zip,
+          lat: loc.lat,
+          lng: loc.lng,
+          ordering_enabled: loc.ordering_enabled,
+        }
+      : null;
     return { ...rest, location } as EventWithLocation;
   });
 }

@@ -32,10 +32,10 @@ export function Navbar() {
             Sign In
           </Link>
           <Link
-            href="/admin/signup"
+            href="/claim"
             className="rounded-lg bg-[#c9a227] px-4 py-2 text-sm font-bold text-[#1e3a5f] shadow-md transition hover:bg-[#d4af37] hover:shadow-lg active:bg-[#b8941f]"
           >
-            List Your Fish Fry
+            List or Claim Your Fish Fry
           </Link>
         </div>
       </div>

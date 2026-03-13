@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { OrderNowButton } from "./OrderNowButton";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   citiesMatch,
@@ -63,6 +64,53 @@ function getLocationCity(event: EventWithLocation): string {
 function getLocationState(event: EventWithLocation): string {
   const loc = event.location;
   return loc && "state" in loc && loc.state ? String(loc.state).trim() : "";
+}
+
+function getLocationName(event: EventWithLocation): string {
+  const loc = event.location;
+  return loc && "name" in loc && loc.name ? String(loc.name).trim() : "";
+}
+
+function isOrderingEnabled(loc: EventWithLocation["location"]): boolean {
+  if (!loc || typeof loc !== "object") return false;
+  const v = (loc as Record<string, unknown>).ordering_enabled;
+  return v === true || v === "true";
+}
+
+/** Abbreviation groups for Catholic/place names. Order: longer first (ste before st) so "ste" isn't matched by "st". */
+const ABBREV_GROUPS: { pattern: RegExp; forms: string[] }[] = [
+  { pattern: /\b(ste\.?|sainte)\b/gi, forms: ["ste.", "ste", "sainte"] },
+  { pattern: /\b(st\.?|saint)\b/gi, forms: ["st.", "st", "saint"] },
+  { pattern: /\b(ft\.?|fort)\b/gi, forms: ["ft.", "ft", "fort"] },
+  { pattern: /\b(h\.|holy)\b/gi, forms: ["h.", "holy"] },
+];
+
+/** Generate search variants. E.g. "st. cletus" → ["st. cletus", "st cletus", "saint cletus"]. */
+function getSearchVariants(s: string): string[] {
+  const lower = s.toLowerCase().trim();
+  if (!lower) return [];
+  const results = new Set<string>([lower]);
+  for (const { pattern, forms } of ABBREV_GROUPS) {
+    const re = new RegExp(pattern.source, pattern.flags);
+    if (re.test(lower)) {
+      for (const form of forms) {
+        results.add(lower.replace(new RegExp(pattern.source, pattern.flags), form));
+      }
+    }
+  }
+  return Array.from(results);
+}
+
+/** Returns true if any variant of search matches any variant of target (bidirectional includes). */
+function matchesWithVariants(searchStr: string, targetStr: string): boolean {
+  const searchVariants = getSearchVariants(searchStr);
+  const targetVariants = getSearchVariants(targetStr);
+  for (const sv of searchVariants) {
+    for (const tv of targetVariants) {
+      if (tv.includes(sv) || sv.includes(tv)) return true;
+    }
+  }
+  return false;
 }
 
 function getLocationCoords(event: EventWithLocation): {
@@ -146,15 +194,17 @@ export function EventListWithFilters({ events }: { events: EventWithLocation[] }
     };
   }, [cityQuery]);
 
-  // Resolve origin: zip takes precedence, then city (with state from matching events)
+  // Resolve origin: zip (from zip field or 5 digits in city field) takes precedence, then city
   const resolveOrigin = useCallback(async () => {
     const zipTrimmed = zipQuery.trim().replace(/\D/g, "");
     const cityTrimmed = cityQuery.trim();
+    const cityAsZip = cityTrimmed.replace(/\D/g, "");
 
-    if (zipTrimmed.length >= 5) {
+    if (zipTrimmed.length >= 5 || cityAsZip.length === 5) {
+      const zipToUse = zipTrimmed.length >= 5 ? zipTrimmed.slice(0, 5) : cityAsZip;
       setGeoLoading(true);
       setGeoError(null);
-      const coords = await fetchZipCoords(zipTrimmed);
+      const coords = await fetchZipCoords(zipToUse);
       setOriginCoords(coords);
       if (!coords) setGeoError("Could not find that zip code.");
       setGeoLoading(false);
@@ -219,18 +269,24 @@ export function EventListWithFilters({ events }: { events: EventWithLocation[] }
 
     const origin = originCoords;
     const withinMilesNum = withinMiles ? parseInt(withinMiles, 10) : null;
-    const cityTrimmed = cityQuery.trim();
-    const hasCityQuery = !!cityTrimmed;
-    let searchCity = "";
-    let searchState = "";
-    if (hasCityQuery) {
-      const commaIdx = cityTrimmed.indexOf(",");
-      if (commaIdx > 0) {
-        searchCity = cityTrimmed.slice(0, commaIdx).trim();
-        searchState = cityTrimmed.slice(commaIdx + 1).trim();
-      } else {
-        searchCity = cityTrimmed;
-      }
+    const searchQuery = cityQuery.trim();
+    const hasSearchQuery = !!searchQuery;
+    const commaIdx = searchQuery.indexOf(",");
+    const searchCity = commaIdx > 0 ? searchQuery.slice(0, commaIdx).trim() : searchQuery;
+    const searchState = commaIdx > 0 ? searchQuery.slice(commaIdx + 1).trim() : "";
+
+    if (hasSearchQuery) {
+      list = list.filter((e) => {
+        const locName = getLocationName(e);
+        const locCity = getLocationCity(e);
+        const locState = getLocationState(e).toUpperCase();
+
+        if (locName && matchesWithVariants(searchQuery, locName)) return true;
+        if (locCity && matchesWithVariants(searchCity, locCity)) {
+          if (!searchState || locState.includes(searchState.toUpperCase())) return true;
+        }
+        return false;
+      });
     }
 
     // Compute distances when we have origin (from zip or successful city coords lookup)
@@ -259,7 +315,7 @@ export function EventListWithFilters({ events }: { events: EventWithLocation[] }
         const db = distMap.get(b.id) ?? Infinity;
         return da - db;
       });
-    } else if (hasCityQuery && searchCity) {
+    } else if (hasSearchQuery && searchCity) {
       // No coords (e.g. city not in zippopotam): sort by city name match
       list = [...list].sort((a, b) => {
         const cityA = getLocationCity(a);
@@ -309,19 +365,18 @@ export function EventListWithFilters({ events }: { events: EventWithLocation[] }
           <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:gap-4">
             <div className="min-w-0 flex-1 sm:min-w-[180px] relative" ref={citySuggestionsRef}>
               <label htmlFor="city-search" className="sr-only">
-                Search by city
+                Search by city or fish fry name
               </label>
               <input
                 ref={cityInputRef}
                 id="city-search"
                 type="search"
-                placeholder="City (e.g. Saint Louis)"
+                placeholder="City or name (e.g. Saint Louis, St. Mary)"
                 value={cityQuery}
                 onChange={(e) => {
                   setCityQuery(e.target.value);
                   setShowCitySuggestions(true);
                 }}
-                onFocus={() => cityQuery.trim() && setShowCitySuggestions(true)}
                 className="w-full rounded-xl border border-[#2d5a87] bg-white/10 px-4 py-3 text-white placeholder-blue-200/80 focus:border-[#c9a227] focus:outline-none focus:ring-2 focus:ring-[#c9a227]/50 sm:py-2.5"
                 aria-label="Search by city name"
                 autoComplete="off"
@@ -345,7 +400,6 @@ export function EventListWithFilters({ events }: { events: EventWithLocation[] }
                           onClick={() => {
                             setCityQuery(`${s.city}, ${s.stateAbbr}`);
                             setShowCitySuggestions(false);
-                            cityInputRef.current?.focus();
                           }}
                         >
                           {s.city}, {s.stateAbbr}
@@ -491,13 +545,14 @@ export function EventListWithFilters({ events }: { events: EventWithLocation[] }
                         </div>
                       </div>
                       <div className="flex shrink-0 flex-col items-stretch gap-3 sm:items-end">
-                        {loc && "ordering_enabled" in loc && loc.ordering_enabled && (
-                          <Link
-                            href={`/events/${event.id}/order`}
-                            className="inline-flex items-center justify-center rounded-xl bg-[#c9a227] px-6 py-3.5 text-base font-bold uppercase tracking-wide text-[#1e3a5f] shadow-md transition hover:bg-[#d4af37] hover:shadow-lg active:bg-[#b8941f]"
-                          >
-                            Order Now
-                          </Link>
+                        {isOrderingEnabled(loc) && (
+                          <OrderNowButton
+                            eventId={event.id}
+                            eventDate={event.event_date}
+                            startTime={event.start_time}
+                            endTime={event.end_time}
+                            variant="card"
+                          />
                         )}
                         <Link
                           href={`/events/${event.id}`}

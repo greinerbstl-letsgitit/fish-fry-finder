@@ -6,7 +6,7 @@ import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { fetchZipCoords } from "@/lib/geo";
 import { checkIsSuperAdmin, getManagedLocations } from "@/lib/admin-access";
-import { approveLocation, rejectLocation } from "./actions";
+import { approveLocation, rejectLocation, approveClaimRequest, rejectClaimRequest, getClaimRequests, type ClaimRequestRow } from "./actions";
 
 type LocationRow = { id: string; name: string } | null;
 type ManagedLocation = { id: string; name: string };
@@ -56,6 +56,10 @@ export default function AdminDashboardPage() {
   const [pendingLocations, setPendingLocations] = useState<PendingLocation[]>([]);
   const [pendingLoading, setPendingLoading] = useState(false);
   const [actionLocationId, setActionLocationId] = useState<string | null>(null);
+  const [claimRequests, setClaimRequests] = useState<ClaimRequestRow[]>([]);
+  const [claimRequestsLoading, setClaimRequestsLoading] = useState(false);
+  const [actionClaimId, setActionClaimId] = useState<string | null>(null);
+  const [claimErrorById, setClaimErrorById] = useState<Record<string, string>>({});
   const [newLocation, setNewLocation] = useState<NewLocationFormState>({
     name: "",
     address: "",
@@ -111,6 +115,52 @@ export default function AdminDashboardPage() {
         setPendingLoading(false);
       });
   }, [isSuperAdmin, user?.id]);
+
+  useEffect(() => {
+    if (!isSuperAdmin || !user?.id) return;
+    setClaimRequestsLoading(true);
+    getClaimRequests(user.id).then((data) => {
+      setClaimRequests(data);
+      setClaimRequestsLoading(false);
+    });
+  }, [isSuperAdmin, user?.id]);
+
+  async function handleApproveClaim(cr: ClaimRequestRow) {
+    if (!user?.id) return;
+    const locationName = (cr.locations as { name?: string } | null)?.name ?? "Unknown";
+    setActionClaimId(cr.id);
+    setClaimErrorById((prev) => ({ ...prev, [cr.id]: "" }));
+    const result = await approveClaimRequest(cr.id, cr.location_id, cr.email, locationName, user.id);
+    setActionClaimId(null);
+    if (result.ok) {
+      setClaimRequests((prev) => prev.filter((c) => c.id !== cr.id));
+      setClaimErrorById((prev) => {
+        const next = { ...prev };
+        delete next[cr.id];
+        return next;
+      });
+      setSuccessMessage(`Claim for "${locationName}" has been approved.`);
+    } else {
+      setSuccessMessage(null);
+      setFormError(null);
+      setClaimErrorById((prev) => ({ ...prev, [cr.id]: result.error ?? "Could not approve." }));
+    }
+  }
+
+  async function handleRejectClaim(cr: ClaimRequestRow) {
+    if (!user?.id) return;
+    if (!confirm("Reject this claim request?")) return;
+    setActionClaimId(cr.id);
+    const result = await rejectClaimRequest(cr.id, user.id);
+    setActionClaimId(null);
+    if (result.ok) {
+      setClaimRequests((prev) => prev.filter((c) => c.id !== cr.id));
+      setSuccessMessage("Claim request has been rejected.");
+    } else {
+      setSuccessMessage(null);
+      setFormError(result.error ?? "Could not reject.");
+    }
+  }
 
   async function handleApprove(loc: PendingLocation) {
     if (!user?.id) return;
@@ -399,6 +449,77 @@ export default function AdminDashboardPage() {
                       </div>
                     </div>
                   ))}
+                </div>
+              )}
+            </div>
+          )}
+          {isSuperAdmin && (
+            <div className="mt-8 rounded-2xl border border-[#2d5a87] bg-white p-6 shadow-lg sm:p-8">
+              <h2 className="text-xl font-bold text-[#1e3a5f]">Claim Requests</h2>
+              <p className="mt-1 text-gray-600">
+                Review and approve or reject location claim requests.
+              </p>
+              {claimRequestsLoading ? (
+                <p className="mt-4 text-gray-600">Loading…</p>
+              ) : claimRequests.length === 0 ? (
+                <p className="mt-4 text-gray-500">No pending claim requests.</p>
+              ) : (
+                <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                  {claimRequests.map((cr) => {
+                    const locationName =
+                      (cr.locations as { name?: string } | null)?.name ?? "Unknown";
+                    return (
+                      <div
+                        key={cr.id}
+                        className="rounded-xl border border-[#2d5a87]/50 bg-gray-50/50 p-4"
+                      >
+                        <h3 className="font-bold text-[#1e3a5f]">{locationName}</h3>
+                        {claimErrorById[cr.id] && (
+                          <div
+                            className="mt-2 rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm font-medium text-red-800"
+                            role="alert"
+                          >
+                            {claimErrorById[cr.id]}
+                          </div>
+                        )}
+                        <p className="mt-2 text-sm text-gray-700">
+                          <span className="font-medium">Claimant:</span> {cr.name}
+                        </p>
+                        <p className="text-sm text-gray-700">
+                          <span className="font-medium">Email:</span> {cr.email}
+                        </p>
+                        <p className="text-sm text-gray-700">
+                          <span className="font-medium">Phone:</span> {cr.phone}
+                        </p>
+                        <p className="text-sm text-gray-700">
+                          <span className="font-medium">Role:</span> {cr.role}
+                        </p>
+                        {cr.message && (
+                          <p className="mt-2 text-sm text-gray-700">
+                            <span className="font-medium">Message:</span> {cr.message}
+                          </p>
+                        )}
+                        <div className="mt-4 flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => handleApproveClaim(cr)}
+                            disabled={actionClaimId === cr.id}
+                            className="rounded-lg bg-[#c9a227] px-4 py-2 text-sm font-bold text-[#1e3a5f] transition hover:bg-[#d4af37] disabled:opacity-70"
+                          >
+                            {actionClaimId === cr.id ? "Processing…" : "Approve"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleRejectClaim(cr)}
+                            disabled={actionClaimId === cr.id}
+                            className="rounded-lg border border-red-300 bg-white px-4 py-2 text-sm font-medium text-red-700 transition hover:bg-red-50 disabled:opacity-70"
+                          >
+                            Reject
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>
