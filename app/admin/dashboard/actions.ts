@@ -197,6 +197,14 @@ export async function approveClaimRequest(
     .update({ status: "approved" })
     .eq("id", claimId);
 
+  // Auto-reject any other pending claims for this location
+  await supabaseAdmin
+    .from("claim_requests")
+    .update({ status: "rejected" })
+    .eq("location_id", locationId)
+    .eq("status", "pending")
+    .neq("id", claimId);
+
   await sendApprovalConfirmation(email, locationName);
   return { ok: true as const };
 }

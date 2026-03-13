@@ -11,6 +11,7 @@ type Location = {
   name: string | null;
   city: string | null;
   state: string | null;
+  user_id: string | null;
 };
 
 export default function ClaimPage() {
@@ -22,7 +23,7 @@ export default function ClaimPage() {
     let cancelled = false;
     supabase
       .from("locations")
-      .select("id, name, city, state")
+      .select("id, name, city, state, user_id")
       .eq("approved", true)
       .then(
         ({ data }) => {
@@ -115,12 +116,21 @@ export default function ClaimPage() {
                           </p>
                         )}
                       </div>
-                      <Link
-                        href={`/claim/${loc.id}`}
-                        className="inline-flex shrink-0 items-center justify-center rounded-xl bg-[#c9a227] px-6 py-3 font-bold text-[#1e3a5f] shadow-md transition hover:bg-[#d4af37]"
-                      >
-                        Claim this listing
-                      </Link>
+                      {loc.user_id ? (
+                        <span
+                          className="inline-flex shrink-0 cursor-not-allowed items-center justify-center rounded-xl bg-gray-300 px-6 py-3 font-bold text-gray-500"
+                          aria-label="Already claimed"
+                        >
+                          Claim this listing
+                        </span>
+                      ) : (
+                        <Link
+                          href={`/claim/${loc.id}`}
+                          className="inline-flex shrink-0 items-center justify-center rounded-xl bg-[#c9a227] px-6 py-3 font-bold text-[#1e3a5f] shadow-md transition hover:bg-[#d4af37]"
+                        >
+                          Claim this listing
+                        </Link>
+                      )}
                     </div>
                   </li>
                 ))}

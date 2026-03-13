@@ -133,10 +133,15 @@ export default function AdminDashboardPage() {
     const result = await approveClaimRequest(cr.id, cr.location_id, cr.email, locationName, user.id);
     setActionClaimId(null);
     if (result.ok) {
-      setClaimRequests((prev) => prev.filter((c) => c.id !== cr.id));
+      const removedIds = claimRequests
+        .filter((c) => c.location_id === cr.location_id)
+        .map((c) => c.id);
+      setClaimRequests((prev) =>
+        prev.filter((c) => c.location_id !== cr.location_id)
+      );
       setClaimErrorById((prev) => {
         const next = { ...prev };
-        delete next[cr.id];
+        removedIds.forEach((id) => delete next[id]);
         return next;
       });
       setSuccessMessage(`Claim for "${locationName}" has been approved.`);
@@ -154,7 +159,7 @@ export default function AdminDashboardPage() {
     const result = await rejectClaimRequest(cr.id, user.id);
     setActionClaimId(null);
     if (result.ok) {
-      setClaimRequests((prev) => prev.filter((c) => c.id !== cr.id));
+      setClaimRequests((prev) => prev.filter((c) => c.location_id !== cr.location_id));
       setSuccessMessage("Claim request has been rejected.");
     } else {
       setSuccessMessage(null);
