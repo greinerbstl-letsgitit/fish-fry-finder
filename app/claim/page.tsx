@@ -24,10 +24,13 @@ export default function ClaimPage() {
       .from("locations")
       .select("id, name, city, state")
       .eq("approved", true)
-      .then(({ data }) => {
-        if (!cancelled) setLocations((data as Location[]) ?? []);
-      })
-      .finally(() => {
+      .then(
+        ({ data }) => {
+          if (!cancelled) setLocations((data as Location[]) ?? []);
+        },
+        () => { /* ignore error */ }
+      )
+      .then(() => {
         if (!cancelled) setLoading(false);
       });
     return () => { cancelled = true; };
