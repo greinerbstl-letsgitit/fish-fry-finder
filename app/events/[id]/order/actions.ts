@@ -75,7 +75,7 @@ export async function placeOrder(
     const location = eventRow?.locations
       ? (Array.isArray(eventRow.locations) ? eventRow.locations[0] : eventRow.locations)
       : null;
-    const locationName = (location as { name?: string } | null)?.name ?? "Fish Fry";
+    const locationName = (location as { name?: string } | null)?.name ?? "Parish Plate";
     const eventDate = eventRow?.event_date
       ? new Date(eventRow.event_date + "T12:00:00").toLocaleDateString("en-US", {
           weekday: "long",

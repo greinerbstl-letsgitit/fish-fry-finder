@@ -1,0 +1,16 @@
+This is Parish Plate — a Catholic Lenten fish fry directory and online ordering app for St. Louis.
+
+Stack: Next.js (App Router), Supabase, Vercel, Resend
+Live URL: https://fish-fry-finder-qab8.vercel.app (rebranding to parishplate.com)
+GitHub: https://github.com/greinerbstl-letsgitit/fish-fry-finder
+Contact: Brett Greiner, greinerbstl@gmail.com
+
+DB tables: locations, events, menu_items, orders, order_items, admins, entree_sides, claim_requests
+
+Key features: public directory (search by city/zip/parish), location approval system, 
+claim-your-listing flow, online ordering with cart + toast notifications, Order Now button 
+grays out outside event hours, ordering optional per location, super admin dashboard, 
+email via Resend.
+
+Env vars: NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY, RESEND_API_KEY, 
+NEXT_PUBLIC_SITE_URL, SUPABASE_SERVICE_ROLE_KEY

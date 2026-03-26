@@ -13,9 +13,13 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Find a Fish Fry & Order Online",
+  title: "Parish Plate | Find a Fish Fry & Order Online",
   description:
     "Skip the line — browse the menu and place your order before you arrive. Supporting Catholic and Christian communities every Friday.",
+  icons: {
+    icon: "/favicon.ico",
+    apple: "/apple-touch-icon.png",
+  },
 };
 
 export default function RootLayout({

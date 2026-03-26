@@ -165,7 +165,7 @@ export async function sendNewOrganizationAlert(data: {
     const { data: result, error } = await resend.emails.send({
       from: FROM_EMAIL,
       to: ["greinerbstl@gmail.com"],
-      subject: `New Fish Fry Signup: ${data.name} (${data.city})`,
+      subject: `New Parish Plate Signup: ${data.name} (${data.city})`,
       html,
     });
     if (error) {
@@ -198,7 +198,7 @@ export async function sendClaimRequestAlert(data: {
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
 <body style="font-family:system-ui,-apple-system,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#333;line-height:1.5">
   <h1 style="font-size:1.5rem;color:#1e3a5f;margin-bottom:16px">Claim Request</h1>
-  <p style="margin:0 0 16px">Someone wants to claim a fish fry listing.</p>
+  <p style="margin:0 0 16px">Someone wants to claim a Parish Plate listing.</p>
   <div style="padding:16px;background:#f8f9fa;border-radius:8px;border-left:4px solid #c9a227;margin:16px 0">
     <p style="margin:0 0 8px"><strong>Location:</strong> ${escapeHtml(data.locationName)}</p>
     <p style="margin:0 0 8px"><strong>Name:</strong> ${escapeHtml(data.claimantName)}</p>
@@ -242,7 +242,7 @@ export async function sendApprovalConfirmation(to: string, locationName: string)
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
 <body style="font-family:system-ui,-apple-system,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#333;line-height:1.5">
   <h1 style="font-size:1.5rem;color:#1e3a5f;margin-bottom:16px">Your listing is now live!</h1>
-  <p style="margin:0 0 16px">Great news — <strong>${escapeHtml(locationName)}</strong> has been approved and is now visible on the Fish Fry Finder.</p>
+  <p style="margin:0 0 16px">Great news — <strong>${escapeHtml(locationName)}</strong> has been approved and is now live on Parish Plate.</p>
   <p style="margin:0 0 16px">You will receive a separate email with a link to set your password and log in to the admin dashboard. Once logged in, you can add events, set up your menu, and start accepting orders.</p>
   <p style="margin:0;padding:16px;background:#f0fdf4;border-radius:8px;color:#166534;border-left:4px solid #c9a227">Check your inbox for the password setup email. If you don't see it, check your spam folder.</p>
 </body>

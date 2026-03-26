@@ -61,10 +61,10 @@ export default function ClaimPage() {
             ← Back to home
           </Link>
           <h1 className="mt-4 text-2xl font-bold tracking-tight text-white sm:text-3xl">
-            List or Claim Your Fish Fry
+            List or Claim Your Parish
           </h1>
           <p className="mt-2 text-blue-100">
-            Claim an existing listing or add a new fish fry to the finder.
+            Claim an existing listing or add your parish to Parish Plate.
           </p>
         </div>
       </header>
@@ -143,7 +143,7 @@ export default function ClaimPage() {
             href="/admin/signup"
             className="inline-flex items-center justify-center rounded-xl border-2 border-[#c9a227] bg-transparent px-8 py-4 font-bold text-[#c9a227] transition hover:bg-[#c9a227]/10"
           >
-            Don&apos;t see yours? List a new fish fry
+            Don&apos;t see yours? List your parish
           </Link>
         </div>
       </main>

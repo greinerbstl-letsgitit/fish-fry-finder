@@ -2,7 +2,7 @@ import Link from "next/link";
 import { Navbar } from "@/app/components/Navbar";
 
 const customerSteps = [
-  "Find a fish fry near you",
+  "Find a parish fish fry near you",
   "Browse the menu",
   "Place your order online",
   "Pay in person when you arrive",
@@ -38,7 +38,7 @@ export default function AboutPage() {
         <Navbar />
         <div className="mx-auto max-w-4xl px-4 py-8 sm:px-6 lg:px-8">
           <h1 className="mt-4 text-3xl font-bold tracking-tight text-white sm:text-4xl">
-            About Fish Fry Finder
+            About Parish Plate
           </h1>
           <p className="mt-3 max-w-3xl text-blue-100">
             Welcome! We are proud to support Catholic and Christian communities
@@ -52,8 +52,8 @@ export default function AboutPage() {
         <section className="rounded-2xl border border-[#2d5a87] bg-white p-5 shadow-lg sm:p-6">
           <h2 className="text-xl font-bold text-[#1e3a5f]">About</h2>
           <p className="mt-3 text-gray-700">
-            Fish Fry Finder is a free platform connecting Catholic and Christian
-            communities with their local fish fry events. People can browse
+            Parish Plate is a free platform connecting Catholic and Christian
+            communities with their local fish fry events during Lent. People can browse
             menus and place orders online for pickup or dine-in, with payment
             handled in person at the event.
           </p>
@@ -73,7 +73,7 @@ export default function AboutPage() {
         <section className="rounded-2xl border border-[#2d5a87] bg-white p-5 shadow-lg sm:p-6">
           <h2 className="text-xl font-bold text-[#1e3a5f]">For Organizers</h2>
           <p className="mt-3 text-gray-700">
-            Listing your fish fry is completely free. Organizers get their own
+            Listing your parish is completely free. Organizers get their own
             dashboard to manage menus and view incoming orders in real time.
             Ready to join?{" "}
             <Link

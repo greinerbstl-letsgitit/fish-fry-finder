@@ -62,7 +62,7 @@ export default async function Home() {
         {/* Hero */}
         <div className="mx-auto max-w-4xl px-4 py-10 sm:px-6 lg:px-8 sm:py-12 text-center">
           <h1 className="text-3xl font-bold tracking-tight text-white drop-shadow sm:text-4xl lg:text-5xl">
-            Find a Fish Fry & Order Online
+            Parish Plate
           </h1>
           <p className="mt-4 max-w-2xl mx-auto text-lg text-blue-100">
             Skip the line — browse the menu and place your order before you

@@ -105,7 +105,7 @@ export default function AdminLoginPage() {
                   href="/admin/signup"
                   className="font-medium text-amber-200 hover:text-amber-100 underline underline-offset-2"
                 >
-                  Register your fish fry
+                  Register your parish
                 </Link>
               </p>
             </form>

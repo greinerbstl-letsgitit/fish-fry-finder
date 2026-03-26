@@ -365,7 +365,7 @@ export function EventListWithFilters({ events }: { events: EventWithLocation[] }
           <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:gap-4">
             <div className="min-w-0 flex-1 sm:min-w-[180px] relative" ref={citySuggestionsRef}>
               <label htmlFor="city-search" className="sr-only">
-                Search by city or fish fry name
+                Search by city or parish name
               </label>
               <input
                 ref={cityInputRef}
@@ -485,7 +485,7 @@ export function EventListWithFilters({ events }: { events: EventWithLocation[] }
           <div className="rounded-2xl border border-[#2d5a87] bg-white/5 px-6 py-12 text-center text-blue-100">
             <p className="text-lg">
               {events.length === 0
-                ? "No upcoming fish fry events at the moment. Check back soon!"
+                ? "No upcoming events at the moment. Check back soon!"
                 : "No events match your filters. Try a different city, zip, or date."}
             </p>
           </div>

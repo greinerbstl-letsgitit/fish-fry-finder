@@ -229,7 +229,7 @@ export default function AdminSignupPage() {
             ← Back to home
           </Link>
           <h1 className="mt-4 text-2xl font-bold tracking-tight text-white sm:text-3xl">
-            Register your fish fry
+            Register your parish
           </h1>
           <p className="mt-2 text-blue-100">
             Create an account and add your location to start accepting orders.

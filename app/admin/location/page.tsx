@@ -776,7 +776,7 @@ export default function AdminLocationPage() {
                 <div className="border-b border-gray-100 bg-gray-50 px-4 py-3 sm:px-5">
                   <h2 className="font-bold text-[#1e3a5f]">Events</h2>
                   <p className="text-sm text-gray-600 mt-0.5">
-                    Add and manage fish fry events for this location.
+                    Add and manage events for this location.
                   </p>
                 </div>
                 <div className="p-4 sm:p-5 space-y-6">

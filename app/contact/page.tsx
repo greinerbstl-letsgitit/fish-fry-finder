@@ -11,7 +11,7 @@ export default function ContactPage() {
             Get In Touch
           </h1>
           <p className="mx-auto mt-3 max-w-2xl text-blue-100">
-            Have a question or want to list your fish fry? We would love to
+            Have a question or want to list your parish? We would love to
             hear from you.
           </p>
         </div>
@@ -48,7 +48,7 @@ export default function ContactPage() {
               href="/admin/signup"
               className="inline-flex w-full items-center justify-center rounded-xl bg-[#c9a227] px-6 py-4 text-base font-bold uppercase tracking-wide text-[#1e3a5f] shadow-md transition hover:bg-[#d4af37] hover:shadow-lg active:bg-[#b8941f] sm:w-auto"
             >
-              List Your Fish Fry
+              List Your Parish
             </Link>
           </div>
         </div>

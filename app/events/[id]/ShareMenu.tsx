@@ -30,7 +30,7 @@ export default function ShareMenu({ locationName }: { locationName: string }) {
 
   const smsUrl = useMemo(() => {
     if (!currentUrl) return "#";
-    const message = `Check out this fish fry at ${locationName}! Order online here: ${currentUrl}`;
+    const message = `Check out this parish fish fry at ${locationName}! Order online and skip the line: ${currentUrl}`;
     return `sms:?&body=${encodeURIComponent(message)}`;
   }, [currentUrl, locationName]);
 
